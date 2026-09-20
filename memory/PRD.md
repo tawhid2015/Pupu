@@ -70,6 +70,18 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
   polling every 4s; search, voice-only filter, per-server controls.
 - Verified iteration_5.json 100% (backend 13/13, full frontend flow).
 
+## Railway-ready packaging (2026-09-20)
+- lavalink/Dockerfile + railway.toml (official lavalink:4-alpine image, downloads
+  youtube-plugin at build via YT_PLUGIN_VERSION arg; application.yml uses ${PORT:2333}
+  and ${LAVALINK_PASSWORD:pupu2026} templating)
+- backend/Dockerfile + railway.toml (default CMD runs bot; API = same image with start
+  override `uvicorn server:app --host 0.0.0.0 --port $PORT`)
+- frontend/Dockerfile + railway.toml (yarn build → serve static, REACT_APP_BACKEND_URL
+  must be set before build)
+- README.md fully rewritten: architecture, file-by-file structure, feature internals,
+  config matrix, complete Railway guide (4 services + Mongo), maintainer guide, testing
+  harnesses, troubleshooting tables
+
 ## Notes / requirements outside build
 - Discord Developer Portal: Message Content Intent must be ON (enabled in code intents; also toggle in portal)
 - Bot must be invited with Connect + Speak voice permissions

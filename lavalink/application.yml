@@ -1,11 +1,15 @@
+# ── Lavalink v4 configuration ────────────────────────────────────────────────
+# Works locally AND on Railway:
+#   • ${PORT:2333}                → Railway injects PORT; falls back to 2333 locally
+#   • ${LAVALINK_PASSWORD:pupu2026} → override on Railway via env var LAVALINK_PASSWORD
 server:
-  port: 2333
+  port: ${PORT:2333}
   address: 0.0.0.0
 lavalink:
   server:
-    password: "pupu2026"
+    password: ${LAVALINK_PASSWORD:pupu2026}
     sources:
-      youtube: false
+      youtube: false          # built-in is empty in v4 — the youtube-plugin handles it
       bandcamp: true
       soundcloud: true
       twitch: true
@@ -40,6 +44,7 @@ plugins:
     allowSearch: true
     allowDirectVideoIds: true
     allowDirectPlaylistIds: true
+    # Clients that currently survive YouTube bot-checks; update when youtube-plugin releases
     clients:
       - MUSIC
       - ANDROID_VR
