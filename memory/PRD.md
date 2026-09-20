@@ -205,3 +205,12 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
 - Verified in clean venv: installs OK + all module imports resolve.
 - Log review: cipher-builder (ejs clone+patch) completed all 7 steps; yarn [err] line was just
   parallel-stage cancellation after pip failed — no yarn problem.
+
+## 2026-09-20 — New test bot token (Prevent#9955) active in pod
+- User provided a NEW Discord bot token (test bot). Updated backend/.env DISCORD_BOT_TOKEN.
+- Bot online as Prevent#9955 (bot id 905383277840445471), 7 guilds, Lavalink + Postgres OK.
+- Old bot Pupu#4710 (98 guilds) token still set on Railway deployment — user deciding which
+  token goes where. WARNING: never run both environments with the same token (gateway fights).
+- Pod incident: after pod resume, Lavalink was down (FATAL: can't find command 'java' on boot,
+  then restart worked) and wavelink exhausted retries → needed pupu_bot restart. If bot reports
+  Lavalink connection refused after a pod resume: restart lavalink, THEN restart pupu_bot.
