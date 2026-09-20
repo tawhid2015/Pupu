@@ -89,16 +89,24 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
 - "Lavalink" hidden from all user-facing surfaces (bot embeds, status page, admin UI);
   internals (env names, logs, README) unchanged by design
 
-## YouTube poToken fix (2026-09-20)
-- Root cause of recurring "source blocked it (youtube)": datacenter IP + YouTube bot-check →
-  AllClientsFailedException. Fixed with an anonymous poToken+visitorData.
-- Generator: /app/lavalink/potoken/ (node: youtubei.js + bgutils-js@3.2.0 + jsdom, gen.mjs).
-  bgutils-js MUST be 3.x (4.x removed the root BG export).
-- Injected into application.yml plugins.youtube.pot; clients = MUSIC, WEB, WEBEMBEDDED, ANDROID_VR
-  (WEB/WEBEMBEDDED are poToken-backed). TVHTML5EMBEDDED is NOT valid in plugin 1.18.2.
-- Refresh helper: python3 /app/lavalink/refresh_potoken.py (regenerates, injects, restarts).
-- Verified DIAG: YOUTUBE OK via=youtube (pos 3580ms). poTokens expire → re-run refresh when
-  playback fails again.
+## YouTube datacenter-IP fix — FINAL (2026-09-20, OAuth)
+- Root cause chain: datacenter IP → YouTube bot-check (requires login / SABR-only formats);
+  poToken CONFLICTS with OAuth (TVHTML5 "The page needs to be reloaded"); wavelink destroys the
+  voice player after a failed load (events arrive player=None) killing fallback playback;
+  fallback searched SoundCloud with the full decorated title → zero results.
+- FINAL working config: OAuth-only (`plugins.youtube.oauth.enabled: true` + refreshToken from
+  the user's device-code authorization of a burner Google account; NO pot: block),
+  clients [TV, IOS, MUSIC, WEB, WEBEMBEDDED, ANDROID_VR] ("TV" resolves to TVHTML5, the
+  OAuth-capable client), remoteCipher → self-hosted yt-cipher on :8002 (supervisor `ytcipher`,
+  Deno, API_TOKEN pupu-cipher-2026, OVERRIDE_PLAYER_VARIANT=IAS).
+- Bot resilience: _PLAYERS registry + mark_playing + player_alive() + revive_player()
+  (reconnects destroyed voice players before retrying), clean_query() strips "| ..."/"(...)"/
+  quality words, 2-step fallback chain: cleaned YouTube retry → cleaned SoundCloud.
+  ensure_player() reconnects silently-dead players.
+- Verified iteration_7.json (100%): exact reported song plays via fallback (via=soundcloud),
+  general YouTube plays directly (via=youtube). If YouTube ever regresses: check oauth refresh
+  in lavalink log; if "page needs to be reloaded" recurs, sign into youtube.com once as the
+  burner account (creates its YouTube channel).
 
 ## Notes / requirements outside build
 - Discord Developer Portal: Message Content Intent must be ON (enabled in code intents; also toggle in portal)

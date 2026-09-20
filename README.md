@@ -369,21 +369,30 @@ the `*.railway.internal` URL.
    `lavalink/Dockerfile` to the latest
    [youtube-source release](https://github.com/lavalink-devs/youtube-source/releases), then redeploy.
 
-### 7.11 YouTube poToken (required on datacenter IPs like Railway)
-YouTube blocks anonymous playback from datacenter IPs. Pupu ships a **poToken generator**
-(`lavalink/potoken/`, using `youtubei.js` + `bgutils-js@3`) that produces an **anonymous**
-`poToken` + `visitorData` (no Google account needed). These are stored under
-`plugins.youtube.pot` in `application.yml` and back the `WEB`/`WEBEMBEDDED` clients.
+### 7.11 YouTube on datacenter IPs — OAuth (current, working) + yt-cipher
+YouTube blocks anonymous playback from datacenter IPs. Pupu's final, working setup:
 
-- **Regenerate + inject + restart Lavalink** in one step:
-  ```bash
-  python3 /app/lavalink/refresh_potoken.py
-  ```
-- poTokens expire (hours–days). If YouTube starts failing, re-run that script.
-- On Railway, run it inside the lavalink service (add `python3 refresh_potoken.py` to a cron/
-  restart hook) or regenerate locally and commit the new values, then redeploy.
-- For a fully hands-off datacenter setup, OAuth (burner account) is the alternative — see the
-  youtube-source README. poToken is the default here because it needs no login.
+1. **OAuth (primary auth):** `plugins.youtube.oauth.enabled: true` with a `refreshToken`
+   obtained by a one-time device-code flow (Lavalink prints `go to https://www.google.com/device
+   and enter code XXXX` at startup when no token is stored). Use a **burner Google account**.
+   ⚠️ Never combine OAuth with a `pot:` (poToken) block — they conflict ("The page needs to be
+   reloaded"). The poToken generator in `lavalink/potoken/` + `refresh_potoken.py` is retained
+   as a fallback tool but intentionally disabled.
+2. **yt-cipher (signature decryption):** self-hosted Deno service in `lavalink/yt-cipher/`
+   (port 8002, `API_TOKEN`), referenced from `application.yml` → `plugins.youtube.remoteCipher`.
+   Handles YouTube's SABR signature rotation.
+3. **Clients:** `TV` (OAuth-capable, resolves to TVHTML5), then IOS/MUSIC/WEB/WEBEMBEDDED/
+   ANDROID_VR as fallbacks.
+4. **Bot-side resilience:** if a YouTube track still fails, Pupu auto-retries with a cleaned
+   title (another YouTube upload, then SoundCloud) and reconnects the voice player if needed —
+   users hear music either way.
+
+On Railway: run yt-cipher as an extra service (Root Directory `lavalink/yt-cipher`, start
+`deno run --no-check --allow-net --allow-read --allow-write --allow-env server.ts` with env
+`API_TOKEN`, `OVERRIDE_PLAYER_VARIANT=IAS`, `PORT`) and point `remoteCipher.url` at its private
+hostname. OAuth: after first deploy, read the device code from the lavalink service logs,
+authorize once, then set the printed refresh token as variable `YOUTUBE_REFRESH_TOKEN`…
+(or paste into application.yml and redeploy).
 
 ### 7.10 Railway troubleshooting
 | Symptom | Cause → Fix |
