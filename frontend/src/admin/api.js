@@ -1,7 +1,7 @@
 import axios from "axios";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-export const ADMIN_API = `${BACKEND_URL}/api/admin`;
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
+export const ADMIN_API = BACKEND_URL ? `${BACKEND_URL}/api/admin` : "/api/admin";
 const TOKEN_KEY = "pupu_admin_token";
 
 export const getToken = () => localStorage.getItem(TOKEN_KEY);

@@ -25,14 +25,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("pupu")
 
 TOKEN = os.environ["DISCORD_BOT_TOKEN"]
-LAVALINK_URL = os.environ["LAVALINK_URL"]
-LAVALINK_PASSWORD = os.environ["LAVALINK_PASSWORD"]
+LAVALINK_URL = os.environ.get("LAVALINK_URL", "http://localhost:2333")
+LAVALINK_PASSWORD = os.environ.get("LAVALINK_PASSWORD", "pupu2026")
 PREFIX = "."
 INACTIVE_TIMEOUT = 180  # seconds
 
 EMBED_COLOR = 0x7C5CFF
 mongo = AsyncIOMotorClient(os.environ["MONGO_URL"])
-db = mongo[os.environ["DB_NAME"]]
+db = mongo[os.environ.get("DB_NAME", "pupu")]
 pg: asyncpg.Pool | None = None
 
 

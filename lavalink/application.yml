@@ -1,9 +1,9 @@
 # ── Lavalink v4 configuration ────────────────────────────────────────────────
 # Works locally AND on Railway:
-#   • ${PORT:2333}                → Railway injects PORT; falls back to 2333 locally
+#   • ${LAVALINK_PORT:2333}         → Internal audio port (2333)
 #   • ${LAVALINK_PASSWORD:pupu2026} → override on Railway via env var LAVALINK_PASSWORD
 server:
-  port: ${PORT:2333}
+  port: ${LAVALINK_PORT:2333}
   address: 0.0.0.0
 lavalink:
   server:

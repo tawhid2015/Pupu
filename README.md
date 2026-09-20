@@ -271,10 +271,30 @@ cd frontend && yarn install && yarn start
 
 ## 7. Railway deployment guide (complete)
 
-### 7.0 Fastest path — one-command bootstrap (`deploy/railway-deploy.sh`)
+### 🌟 7.1 Recommended: All-in-One Single Container (Easiest & Fastest)
 
-Instead of clicking through the dashboard, run the bootstrap script — it creates the whole
-project (MongoDB + 5 services), sets every variable, and deploys each service:
+Pupu now features a root multi-stage `Dockerfile` and `supervisord` configuration that runs the **entire stack** (Lavalink, yt-cipher, Discord Bot, FastAPI backend, and React web dashboard) inside **1 single service** on Railway from your single repository (`tawhid2015/Pupu`).
+
+#### Steps to Deploy:
+1. **Save to GitHub**: In Emergent, click **"Save to GitHub"** in the chat input bar to push this repo to `tawhid2015/Pupu`.
+2. **In Railway** (`railway.com/project/...`):
+   - Click **+ Create** → **Database** → **Add MongoDB** (1 click).
+   - Click **+ Create** → **GitHub Repository** → select `tawhid2015/Pupu` (leave Root Directory as default `/`).
+3. **Set 3 Environment Variables** on the service:
+   | Variable | Value | Description |
+   |---|---|---|
+   | `DISCORD_BOT_TOKEN` | `<your_discord_bot_token>` | Bot token from Discord Developer Portal |
+   | `SUPABASE_DB_URL` | `<your_supabase_session_pooler_dsn>` | Supabase postgres connection string |
+   | `MONGO_URL` | `${{MongoDB.MONGO_URL}}` | Auto-referenced from Railway's MongoDB |
+4. **Generate Public Domain**:
+   - In the deployed service → **Settings** → **Networking** → click **Generate Domain**.
+   - Open that domain in your browser to view your live **Public Status Page** and **Admin Dashboard** (`/admin`)!
+
+---
+
+### 7.2 Alternative: CLI One-Command Bootstrap (`deploy/railway-deploy.sh`)
+
+If you prefer deploying multi-services from the terminal:
 
 ```bash
 npm i -g @railway/cli          # or: brew install railway
@@ -282,25 +302,9 @@ railway login                  # browser auth
 bash deploy/railway-deploy.sh  # from the repo root
 ```
 
-It prompts only for the Discord token and Supabase DSN (everything else has working
-defaults). Afterwards, optionally connect each service to your GitHub repo
-(*Service → Settings → Source*, Root Directories in the table below) so `git push`
-auto-deploys.
-
-### One-click "Deploy on Railway" button (optional)
-
-After the project exists once in Railway: **Workspace → Templates → Publish** on the
-project → Railway gives you a `TEMPLATE_ID`. Then add this button to the top of the README
-so anyone (including future you) redeploys the entire stack in one click:
-
-```md
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template/<TEMPLATE_ID>)
-```
-
 ---
 
-The repo ships Railway-ready: each deployable folder has a **`Dockerfile` + `railway.toml`**.
-You will create **one Railway project with 5 services** (4 + the yt-cipher helper):
+### 7.3 Advanced: Manual Multi-Service Architecture (5 Services)
 
 | # | Service | Root Directory | Purpose |
 |---|---|---|---|

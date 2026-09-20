@@ -149,3 +149,12 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
   → button), service table updated to 5 services, env-var matrix includes yt-cipher column.
 - User must still: `railway login` + run the script (needs their Railway account), optionally
   connect GitHub sources for push-to-deploy.
+
+## 2026-09-20 — All-in-One 1-Click Railway Deployment (DONE)
+- Implemented single-container deployment architecture:
+  • Root multi-stage `Dockerfile`: builds React static assets in Node 20 stage, runtime Python 3.11 with OpenJDK 17 + Deno + Supervisor + Lavalink 4.2.2 + youtube-plugin snapshot.
+  • `supervisord.conf` & `entrypoint.sh`: runs all 5 components internally (Lavalink, yt-cipher, Discord bot, FastAPI serving static React at `/` & `/admin` on `$PORT`).
+  • `backend/server.py`: updated with static file mounting and SPA fallback route for React frontend, plus safe env defaults.
+  • `backend/pupu_bot.py`: updated with localhost default fallbacks for Lavalink connection.
+  • `lavalink/application.yml`: updated port to `${LAVALINK_PORT:2333}` so Railway's `$PORT` does not conflict.
+  • Railway requirements simplified to just 1 service (`tawhid2015/Pupu`) + 1 MongoDB database + 3 environment variables (`DISCORD_BOT_TOKEN`, `SUPABASE_DB_URL`, `MONGO_URL`).
