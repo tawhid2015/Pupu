@@ -166,7 +166,7 @@ export default function AdminDashboard() {
       </header>
 
       <section className="a-stats">
-        <Stat icon={Server} label="Servers" value={data?.guilds ?? "—"} accent="#b388ff" testid="admin-stat-servers" />
+        <Stat icon={Server} label="Servers" value={data?.guilds ?? "—"} accent="#7c5cff" testid="admin-stat-servers" />
         <Stat icon={Users} label="Total Members" value={data?.users?.toLocaleString?.() ?? "—"} accent="#7c5cff" testid="admin-stat-users" />
         <Stat icon={Radio} label="In Voice" value={data?.active_voice ?? 0} accent="#4ade80" testid="admin-stat-voice" />
         <Stat icon={Music4} label="Playing" value={data?.active_players ?? 0} accent="#f59e0b" testid="admin-stat-playing" />

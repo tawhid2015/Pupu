@@ -3,8 +3,8 @@
   --bg: #08080d;
   --panel: rgba(22, 20, 34, 0.6);
   --line: rgba(160, 130, 255, 0.15);
-  --violet: #b388ff;
-  --violet-deep: #7c5cff;
+  --violet: #7c5cff;
+  --violet-deep: #5537e0;
   --text: #ece9f5;
   --muted: #9a93b3;
   position: relative;
@@ -79,7 +79,7 @@
 .a-stat { display: flex; align-items: center; gap: 14px; background: var(--panel);
   border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; backdrop-filter: blur(14px); }
 .a-stat-icon { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center;
-  background: rgba(179,136,255,0.10); flex-shrink: 0; }
+  background: rgba(124,92,255,0.10); flex-shrink: 0; }
 .a-stat-value { font-family: "Sora", sans-serif; font-weight: 700; font-size: 1.5rem; line-height: 1.1; }
 .a-stat-label { color: var(--muted); font-size: 0.78rem; }
 

@@ -131,7 +131,7 @@ function StatusPage() {
             : <div className="hero-avatar hero-avatar-fallback"><Music4 size={44} /></div>}
           <span className={`ring ${online ? "on" : ""}`} />
         </div>
-        <p className="eyebrow"><Radio size={13} /> Discord Music Bot · Lavalink v4</p>
+        <p className="eyebrow"><Radio size={13} /> Discord Music Bot</p>
         <h1 className="hero-title">Meet <span>{status?.name?.split("#")[0] || "Pupu"}</span></h1>
         <p className="hero-sub">
           High-quality music streaming for your server. Every command works with a
@@ -140,7 +140,7 @@ function StatusPage() {
       </section>
 
       <section className="stats">
-        <StatCard icon={Server} label="Servers" value={status?.guilds ?? "—"} accent="#b388ff" testid="stat-servers" />
+        <StatCard icon={Server} label="Servers" value={status?.guilds ?? "—"} accent="#7c5cff" testid="stat-servers" />
         <StatCard icon={Users} label="Listeners" value={status?.users?.toLocaleString?.() ?? "—"} accent="#7c5cff" testid="stat-users" />
         <StatCard icon={Music4} label="Now Playing" value={status?.active_players ?? 0} accent="#4ade80" testid="stat-players" />
         <StatCard icon={Gauge} label="Latency" value={status?.latency_ms != null ? `${status.latency_ms}ms` : "—"} accent="#38bdf8" testid="stat-latency" />
@@ -189,7 +189,7 @@ function StatusPage() {
       </section>
 
       <footer className="foot">
-        <span><Shuffle size={13} /> <Repeat size={13} /> Pupu · powered by Lavalink v4 + Wavelink</span>
+        <span><Shuffle size={13} /> <Repeat size={13} /> Pupu · powered by designertawhid</span>
       </footer>
     </div>
   );

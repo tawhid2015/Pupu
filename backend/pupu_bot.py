@@ -1,4 +1,4 @@
-"""Pupu — Discord music bot (discord.py + Wavelink v3, Lavalink v4)."""
+"""Pupu — Discord music bot (discord.py + Wavelink v3)."""
 import os
 import re
 import json
@@ -30,7 +30,7 @@ LAVALINK_PASSWORD = os.environ["LAVALINK_PASSWORD"]
 PREFIX = "."
 INACTIVE_TIMEOUT = 180  # seconds
 
-EMBED_COLOR = 0xB388FF
+EMBED_COLOR = 0x7C5CFF
 mongo = AsyncIOMotorClient(os.environ["MONGO_URL"])
 db = mongo[os.environ["DB_NAME"]]
 pg: asyncpg.Pool | None = None
@@ -423,7 +423,7 @@ async def help_cmd(ctx: commands.Context):
                 value=("`serverplaylist …` (alias `spl`) — same actions, shared by everyone\n"
                        "e.g. `spl create <name>` · `spl add <name> <song>` · `spl load <name>`"),
                 inline=False)
-    e.set_footer(text="Pupu • powered by Lavalink v4")
+    e.set_footer(text="Pupu • powered by designertawhid")
     await ctx.reply(embed=e)
 
 

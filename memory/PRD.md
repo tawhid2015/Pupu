@@ -82,6 +82,13 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
   config matrix, complete Railway guide (4 services + Mongo), maintainer guide, testing
   harnesses, troubleshooting tables
 
+## Rebrand (2026-09-20)
+- Watermark everywhere: "Pupu • powered by designertawhid" (bot help footer, web footer)
+- Theme: dominant deep violet #7c5cff everywhere (bot EMBED_COLOR 0x7C5CFF, web CSS vars
+  --violet #7c5cff / --violet-deep #5537e0, glows + accents re-based to 124,92,255)
+- "Lavalink" hidden from all user-facing surfaces (bot embeds, status page, admin UI);
+  internals (env names, logs, README) unchanged by design
+
 ## Notes / requirements outside build
 - Discord Developer Portal: Message Content Intent must be ON (enabled in code intents; also toggle in portal)
 - Bot must be invited with Connect + Speak voice permissions
