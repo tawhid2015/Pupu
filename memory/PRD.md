@@ -56,6 +56,20 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
 - 18 slash commands. Verified: iteration_4.json 100% (scope isolation, dedupe, cap, creator-only
   delete, IMPORTTEST SPOTIFY 50 + YOUTUBE 10)
 
+## Admin dashboard (2026-09-20)
+- Multi-server simultaneous playback is inherent to wavelink: each guild has its own
+  independent Player + voice connection (confirmed). No shared/global player state.
+- Private admin dashboard at `/admin` (login `/admin/login`), JWT Bearer auth, single admin
+  from env (ADMIN_USERNAME=pupu / ADMIN_PASSWORD=pupu2026). Token in localStorage
+  `pupu_admin_token`, 12h expiry. Brute-force lockout (5 tries/15min) via login_attempts.
+- Bot push_status() (5s) writes servers[] with per-guild voice channel, listeners, now-playing,
+  volume, queue, loop + active_voice count. poll_commands() (2s) executes admin control
+  commands from db.bot_commands (pause/resume/skip/stop/leave/volume).
+- Backend admin API: /api/admin/login, /me, /overview, /servers/{id}, /control.
+- Frontend: src/admin/{api,AdminLogin,AdminDashboard,ProtectedRoute,admin.css}; near-real-time
+  polling every 4s; search, voice-only filter, per-server controls.
+- Verified iteration_5.json 100% (backend 13/13, full frontend flow).
+
 ## Notes / requirements outside build
 - Discord Developer Portal: Message Content Intent must be ON (enabled in code intents; also toggle in portal)
 - Bot must be invited with Connect + Speak voice permissions

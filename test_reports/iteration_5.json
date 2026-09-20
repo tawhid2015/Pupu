@@ -1,0 +1,25 @@
+{
+  "summary": "End-to-end testing of the new Pupu Admin dashboard (auth + overview + server detail + control + protected route + logout + public status regression). Backend: 13/13 pytest cases passed against public REACT_APP_BACKEND_URL. Frontend: full Playwright flow passed — /admin without token redirects to /admin/login, wrong password shows admin-login-error, valid pupu/pupu2026 logs in and renders admin-dashboard with real stats (98 servers, 28,426 users, 0 in voice, 0 playing, 49ms latency), search filter narrows to 0 with no-match query, voice-only filter toggles, logout clears localStorage token and returns to login, and public status page still loads.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_admin_api.py",
+    "/app/test_reports/pytest/pytest_admin.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ADMIN_PASSWORD_HASH is generated at process start with bcrypt.gensalt() rather than persisted — acceptable for a single-admin env-var setup, but every worker/restart yields a fresh salt (no login persistence issue since checkpw uses embedded salt, so OK).",
+    "login_attempts lockout keyed by ip+username: OK. Consider capping stored count and auto-expiring stale records via TTL index.",
+    "admin_control waits up to ~6s via a 15x0.4s poll loop — fine, but could use Motor change streams or an asyncio.Event for lower latency. Current behavior is correct and returns {ok:false,result:'no_player'} within ~2s as expected.",
+    "CORS: allow_credentials=True with allow_origins='*' from .env would be invalid per spec; currently CORS_ORIGINS='*' — since admin uses Bearer (not cookies), this is functionally OK but worth tightening for defense in depth.",
+    "pupu_bot.py is 1069 lines — consider splitting (commands, voice/wavelink handlers, status pusher) for maintainability."
+  ],
+  "updated_files": ["/app/backend/tests/test_admin_api.py"],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "100% (all flows)"},
+  "test_credentials": "admin username 'pupu' / password 'pupu2026' — verified from /app/memory/test_credentials.md and backend/.env",
+  "seed_data_creation": "None. Used live bot status data pushed by pupu_bot (98 guilds).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Admin dashboard is fully working. Backend regression suite at /app/backend/tests/test_admin_api.py (13 tests). Bot is currently not in any voice channel, so control actions return {ok:false,result:'no_player'} — this is the intended, tested behavior. If future testing requires an active player, a voice-connected guild would be needed (out of automation scope).",
+  "rca of the issue": "N/A — no issues found."
+}
