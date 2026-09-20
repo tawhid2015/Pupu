@@ -44,12 +44,17 @@ plugins:
     allowSearch: true
     allowDirectVideoIds: true
     allowDirectPlaylistIds: true
-    # Clients that currently survive YouTube bot-checks; update when youtube-plugin releases
+    # poToken + visitorData let the WEB/WEBEMBEDDED clients pass YouTube's bot-check on
+    # datacenter IPs. Refresh with /app/lavalink/refresh_potoken.py when playback fails.
+    pot:
+      token: "MsIE12rH5l4DMTDXVPqZ4AspFSAj26qA8ZZju59zuKWqASw9QAYgqM_tt9gBe6TUuNp0vSpWd6bnuHWKhe2CFa6fIKKfJU_wH3j75XvPD_nYlpjx33PfrdnDCy70ndCJn86YolHm9dnr0wVwGu8gbnzR8Noy3l6UJjnf7lzSaC3cPh9kF1-buc-mBsrmD69UhEMaMlW8LTaZ6WhRzQA0udDb2qdisoC1YzDiLAXo8fITlt7DH0fq_V-Fmo6qVUxdJ_54VsUhRfowlbeu3uixdB8NndONSXLKdWRhlMyGkTbodeIxuzx_6LvrVhbDW-G-FHPg2zBQ-HCQAOl2jiY7IdMGc36fdFFAHhKqhB_iXivG8k3gPONGP8X-STyFTDcOw0XMms_H9e2UeXD8rC4E-9B8vgDlDfVIPH0YM12ZjILc65q-U60jd5QD2nuSmwYcZiX1j8H7to71rgea2s24UvYX7j7A3R3f5ycj6QhMhG0ggGfhvCXfsCoc5I1KHCYlWrvdknaDyOl-p2EejzaK6Epu6RVV2UT7C2vZwWfX_QQn4-ByNdpvcQ23CT0uyao8C43JeKCdmMCBCOMBFeWk5mYqybpRBPzninVfIhmzTVl_DDGxC5le2FYIVhKvSkdcCidCJ7h1ZVQq9gPl7S_5bP1AS_L5zsAZqBhIjvPHT8BrVFxOLbmR9QwLwgMnCs8pib9E5usbr2VViL4oKJkw4jAMbBIlmyyULJcbal7LAJSi08bJEHnC-3orQvo-p9BZOElEAPE="
+      visitorData: "CgtLNy02QTFhTkRzeCi2wr7VBmLfAgrcAjIxLllUPWc4WGdxWFkwSWpCdDlyOHVGWlBLSnhGRDl3aGQxcHc5QVY1cEZBa1dlRUpsM3hSNmtkUlA5MFdkQjdtOGZINXIzWVVIX2NPd0xvd1NiNkVyTWllLTJrSEJETm5lLXBTc3BmSDR0Um54X2xxWVNKcm1VMlIxUHdrTHBoWlpFdjJHRTAzZ2owUndjOHlfVzVtd0I2amdRMTZua3ZVTDd5b081MzRIRXhTWnJrRXNEcjNYUjBla3NsQ2JGS3hfa2hQVTJxYms1akF3ZnZxanFiVE9Mc1hHMXdzc3BJRHdISnRyc2xnbmkteTJhZHpZemVmenRlQVVlenJLVGQtRXNrTURTMGhwNlJHV0RSLXFMNnFnY3FtS0tjQlVqN2x5Z0JjbW1iSml0QzVQRmxSTmQtV3JjME5Qb3htRlNDbnozaFFJVERudXBRRjBRTVVxVjl0bmNsbUtYZw%3D%3D"
+    # WEB/WEBEMBEDDED are poToken-backed; MUSIC/ANDROID_VR/TVHTML5EMBEDDED add resilience.
     clients:
       - MUSIC
-      - ANDROID_VR
       - WEB
       - WEBEMBEDDED
+      - ANDROID_VR
 metrics:
   prometheus:
     enabled: false

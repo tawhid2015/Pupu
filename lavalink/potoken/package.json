@@ -1,0 +1,17 @@
+{
+  "name": "potoken",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "bgutils-js": "^3.2.0",
+    "jsdom": "^29.1.1",
+    "youtubei.js": "^18.0.0"
+  }
+}

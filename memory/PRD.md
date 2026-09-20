@@ -89,6 +89,17 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
 - "Lavalink" hidden from all user-facing surfaces (bot embeds, status page, admin UI);
   internals (env names, logs, README) unchanged by design
 
+## YouTube poToken fix (2026-09-20)
+- Root cause of recurring "source blocked it (youtube)": datacenter IP + YouTube bot-check →
+  AllClientsFailedException. Fixed with an anonymous poToken+visitorData.
+- Generator: /app/lavalink/potoken/ (node: youtubei.js + bgutils-js@3.2.0 + jsdom, gen.mjs).
+  bgutils-js MUST be 3.x (4.x removed the root BG export).
+- Injected into application.yml plugins.youtube.pot; clients = MUSIC, WEB, WEBEMBEDDED, ANDROID_VR
+  (WEB/WEBEMBEDDED are poToken-backed). TVHTML5EMBEDDED is NOT valid in plugin 1.18.2.
+- Refresh helper: python3 /app/lavalink/refresh_potoken.py (regenerates, injects, restarts).
+- Verified DIAG: YOUTUBE OK via=youtube (pos 3580ms). poTokens expire → re-run refresh when
+  playback fails again.
+
 ## Notes / requirements outside build
 - Discord Developer Portal: Message Content Intent must be ON (enabled in code intents; also toggle in portal)
 - Bot must be invited with Connect + Speak voice permissions

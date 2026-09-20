@@ -363,10 +363,27 @@ the `*.railway.internal` URL.
 ### 7.9 Updating / redeploying
 1. Push to GitHub → Railway auto-deploys (or **Deploy → Redeploy**).
 2. Order doesn't matter; worst case the bot retries its Lavalink connection until it's back.
-3. **YouTube suddenly stops working** (the classic `No supported audio streams`): bump
-   `YT_PLUGIN_VERSION` in `lavalink/Dockerfile` to the latest
-   [youtube-source release](https://github.com/lavalink-devs/youtube-source/releases) and redeploy
-   the lavalink service. That's the fix ~90% of the time.
+3. **YouTube suddenly stops working** (`No supported audio streams` / `AllClientsFailedException:
+   All clients failed to load the item`): this is YouTube's bot-check against datacenter IPs.
+   Fix = refresh the **poToken** (see §7.11) and/or bump `YT_PLUGIN_VERSION` in
+   `lavalink/Dockerfile` to the latest
+   [youtube-source release](https://github.com/lavalink-devs/youtube-source/releases), then redeploy.
+
+### 7.11 YouTube poToken (required on datacenter IPs like Railway)
+YouTube blocks anonymous playback from datacenter IPs. Pupu ships a **poToken generator**
+(`lavalink/potoken/`, using `youtubei.js` + `bgutils-js@3`) that produces an **anonymous**
+`poToken` + `visitorData` (no Google account needed). These are stored under
+`plugins.youtube.pot` in `application.yml` and back the `WEB`/`WEBEMBEDDED` clients.
+
+- **Regenerate + inject + restart Lavalink** in one step:
+  ```bash
+  python3 /app/lavalink/refresh_potoken.py
+  ```
+- poTokens expire (hours–days). If YouTube starts failing, re-run that script.
+- On Railway, run it inside the lavalink service (add `python3 refresh_potoken.py` to a cron/
+  restart hook) or regenerate locally and commit the new values, then redeploy.
+- For a fully hands-off datacenter setup, OAuth (burner account) is the alternative — see the
+  youtube-source README. poToken is the default here because it needs no login.
 
 ### 7.10 Railway troubleshooting
 | Symptom | Cause → Fix |
