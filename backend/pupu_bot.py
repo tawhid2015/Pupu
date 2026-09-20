@@ -63,9 +63,12 @@ def clean_query(title: str, author: str = "") -> str:
     base = re.sub(r"\([^)]*\)", "", base)
     base = re.sub(r"\[[^\]]*\]", "", base)
     base = re.sub(r"(?i)\b(8k|4k|official|video|audio|full song|lyrical|hd)\b", "", base)
+    base = base.replace("-", " ")
     base = re.sub(r"\s+", " ", base).strip()
-    if author and author.endswith(" - Topic"):
-        author = author[:-8]
+    if author:
+        if author.endswith(" - Topic"):
+            author = author[:-8]
+        author = re.sub(r"(?i)\s*(vevo|official)$", "", author).strip()
     return f"{base} {author}".strip()
 
 
@@ -185,6 +188,20 @@ class Pupu(commands.Bot):
         if not player:
             return
         chan = getattr(player, "home", None)
+
+        # Hard-blocked videos (region lock / "not available" on every client) never
+        # recover — remember them for this session so autoplay mixes that re-suggest
+        # the same video get skipped silently instead of retrying and spamming.
+        exc_msg = (exc.get("message") or "").lower()
+        blocked = getattr(player, "_blocked", None)
+        if blocked is None:
+            blocked = player._blocked = set()
+        if track.identifier in blocked:
+            logger.info("skipping known-blocked video %s silently", track.identifier)
+            return
+        if "not available" in exc_msg or "unavailable" in exc_msg:
+            if len(blocked) < 200:
+                blocked.add(track.identifier)
 
         # One SoundCloud swap for a blocked YouTube track. AutoPlay (enabled) owns
         # queue advancement — we never loop a retry: the counter only resets when

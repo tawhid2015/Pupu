@@ -258,3 +258,14 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
   song's start only if nobody is listening; rejoin → "Welcome back" + resume; 60s empty → leave.
 - Diag harness sets player._diag=True to skip empty-channel logic (it joins empty channels).
 - Bot restarted clean (Prevent#9955). Needs user Discord verification.
+
+## 2026-09-20 — Region-blocked video handling (Indila DF3XjEhJ40Y) fixed
+- Video DF3XjEhJ40Y (Indila - Love Story) fails playback on ALL YT clients: "This video is
+  not available" = region/availability lock (NOT bot-check). Unfixable without proxy.
+- But SoundCloud fallback silently failed: query was "Indila - Love Story IndilaVEVO" →
+  scsearch 0 results. clean_query() now strips VEVO/official author suffixes and dashes →
+  "Indila Love Story Indila" → 10 SC results. DIAG-verified: SoundCloud stream plays
+  (pos advanced, source=soundcloud).
+- NEW: player._blocked set — identifiers failing with "not available/unavailable" are
+  remembered per session; repeat attempts (e.g. YouTube RD autoplay mixes re-suggesting the
+  same blocked video) are skipped silently, no message spam.
