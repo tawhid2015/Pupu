@@ -1,0 +1,15 @@
+{
+  "summary": "Verified the YouTube poToken playback fix end-to-end via the DIAG harness. All four required checks passed: (1) DIAG shows YOUTUBE streaming directly with via=youtube (pos=3760ms, 'Rick Astley - Never Gonna Give You Up'), NOT via SoundCloud fallback; (2) Lavalink 4.2.2 healthy and YouTube source initialised with WEB + WEB_EMBEDDED_PLAYER (poToken-backed) plus WEB_REMIX and ANDROID_VR; (3) REST /v4/loadtracks for 'Wajah Tum Ho Title Track' returns loadType=search with 20 results; (4) /api/bot/status returns online=true, bot log shows 'Pupu online' and 'Synced 18 slash commands'. Zero new AllClientsFailedException entries after the latest restart. The 'source blocked it (youtube)' bug is fixed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/var/log/supervisor/pupu_bot.err.log", "/var/log/supervisor/lavalink.out.log"],
+  "action_items": [],
+  "critical_code_review_comments": ["poTokens are time-limited; if playback regresses hours/days later, run `python3 /app/lavalink/refresh_potoken.py` to mint a fresh token. Consider a cron/scheduler to auto-refresh."],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "N/A (backend only)"},
+  "seed_data_creation": "Touched /tmp/pupu_diag.flag to trigger the DIAG harness on bot start.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "DIAG evidence at 09:08:51 UTC 2026-09-20: 'DIAG: YOUTUBE+FB OK (pos=3760ms now=Rick Astley - Never Gonna Give You Up ... via=youtube)'. If via=soundcloud reappears, poToken has drifted — regenerate via /app/lavalink/refresh_potoken.py. Lavalink clients order after restart: WEB_REMIX, WEB, WEB_EMBEDDED_PLAYER, ANDROID_VR. No AllClientsFailedException after 09:08 restart.",
+  "rca of the issue": "Before fix: datacenter IP triggered YouTube bot-check, causing AllClientsFailedException and 'No supported audio streams' from Lavalink; bot surfaced 'source blocked it (youtube)'. Fix: injected anonymous poToken + visitorData via youtubei.js + bgutils-js into plugins.youtube.pot in application.yml and enabled poToken-backed clients (WEB, WEB_EMBEDDED_PLAYER) alongside MUSIC/ANDROID_VR. Verification: DIAG now shows via=youtube (direct stream), no SoundCloud fallback needed."
+}
