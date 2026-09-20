@@ -1,0 +1,15 @@
+services:
+  ejs-api:
+    # Uncomment to build locally
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # image: ghcr.io/kikkia/yt-cipher:master
+    container_name: ejs_signature_api
+    ports:
+      - "8001:8001"
+    environment: 
+      - OVERRIDE_PLAYER_VARIANT=IAS
+    # UNCOMMENT API_TOKEN TO ADD A PASSWORD
+    #   - API_TOKEN=test
+    restart: unless-stopped

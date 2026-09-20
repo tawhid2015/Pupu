@@ -47,14 +47,27 @@ plugins:
     # poToken + visitorData let the WEB/WEBEMBEDDED clients pass YouTube's bot-check on
     # datacenter IPs. Refresh with /app/lavalink/refresh_potoken.py when playback fails.
     pot:
-      token: "MsIE12rH5l4DMTDXVPqZ4AspFSAj26qA8ZZju59zuKWqASw9QAYgqM_tt9gBe6TUuNp0vSpWd6bnuHWKhe2CFa6fIKKfJU_wH3j75XvPD_nYlpjx33PfrdnDCy70ndCJn86YolHm9dnr0wVwGu8gbnzR8Noy3l6UJjnf7lzSaC3cPh9kF1-buc-mBsrmD69UhEMaMlW8LTaZ6WhRzQA0udDb2qdisoC1YzDiLAXo8fITlt7DH0fq_V-Fmo6qVUxdJ_54VsUhRfowlbeu3uixdB8NndONSXLKdWRhlMyGkTbodeIxuzx_6LvrVhbDW-G-FHPg2zBQ-HCQAOl2jiY7IdMGc36fdFFAHhKqhB_iXivG8k3gPONGP8X-STyFTDcOw0XMms_H9e2UeXD8rC4E-9B8vgDlDfVIPH0YM12ZjILc65q-U60jd5QD2nuSmwYcZiX1j8H7to71rgea2s24UvYX7j7A3R3f5ycj6QhMhG0ggGfhvCXfsCoc5I1KHCYlWrvdknaDyOl-p2EejzaK6Epu6RVV2UT7C2vZwWfX_QQn4-ByNdpvcQ23CT0uyao8C43JeKCdmMCBCOMBFeWk5mYqybpRBPzninVfIhmzTVl_DDGxC5le2FYIVhKvSkdcCidCJ7h1ZVQq9gPl7S_5bP1AS_L5zsAZqBhIjvPHT8BrVFxOLbmR9QwLwgMnCs8pib9E5usbr2VViL4oKJkw4jAMbBIlmyyULJcbal7LAJSi08bJEHnC-3orQvo-p9BZOElEAPE="
-      visitorData: "CgtLNy02QTFhTkRzeCi2wr7VBmLfAgrcAjIxLllUPWc4WGdxWFkwSWpCdDlyOHVGWlBLSnhGRDl3aGQxcHc5QVY1cEZBa1dlRUpsM3hSNmtkUlA5MFdkQjdtOGZINXIzWVVIX2NPd0xvd1NiNkVyTWllLTJrSEJETm5lLXBTc3BmSDR0Um54X2xxWVNKcm1VMlIxUHdrTHBoWlpFdjJHRTAzZ2owUndjOHlfVzVtd0I2amdRMTZua3ZVTDd5b081MzRIRXhTWnJrRXNEcjNYUjBla3NsQ2JGS3hfa2hQVTJxYms1akF3ZnZxanFiVE9Mc1hHMXdzc3BJRHdISnRyc2xnbmkteTJhZHpZemVmenRlQVVlenJLVGQtRXNrTURTMGhwNlJHV0RSLXFMNnFnY3FtS0tjQlVqN2x5Z0JjbW1iSml0QzVQRmxSTmQtV3JjME5Qb3htRlNDbnozaFFJVERudXBRRjBRTVVxVjl0bmNsbUtYZw%3D%3D"
-    # WEB/WEBEMBEDDED are poToken-backed; MUSIC/ANDROID_VR/TVHTML5EMBEDDED add resilience.
+      token: "MsIEQreqEa2FRWhCiQNhaHWnalL2YxKl2zw21Takaf-N3ec35iLZkZX8VWebiNbWm6F6Ug0tlf6_P7ckmYeAuFrQ1sPgCRYYHQ9sMgl5MYkEbSfy8aQaFlGB0pFUbIDiYUSvfqgc_j2P0ijaSkh6gZUWIlmNzi1DbdBINW6gIWE6zfyuKdwe_0rw-76VD0xwVg9mSI1K1U0UWIqjPR7_asHmsEkoEAYNoTAlulznZLycG9-5Mn9kR9Fnt-Bys37stku-ur7hJvUC3Rv-lQn0EUDba_QojFTtozs625kCZVUKLaFUYunTHTQWV_jgT5n3gAAcWIywskJZ984tdeYA_XUpfme-FNiSP8Yyj_Bfm9lOltBLZrt8-aDlEeCKYkSo5bB41MFjeQ0Yzh0YYwNHXXtQaufspRdunnegHg_i0R8jw-1lPuPKQ2ac2lRoBdGI_3RMCf61kiPwYNEuEYTqOpBcU0bkgtiuRLkz1aW9Z3cYu7IkODRVSrdLjX8y2iuhYKaHZWDrnVVSXvgDn9jrYasm8-8Eww2KNxZFITkcKJsjVJ8dMOC9VPtcTGvaeVpInsst4Em8lRU4o5zlhvdV9KbzBbgiwSVwsJ5pu9_mL0GCnaJPP5XRy5sSnpnLB7J_y2MPwGlclC95LEa53peP6EO3eia-24IxpOnOqtFLBr12Rr6BlTrVIVEBWYN5Uo_UGopGIufpyvdwk5YGhXZvS-IUeExhEBRWgM1QzANVeeQEAFDzOH0kEs01m0E0-Fmpjn_oifI="
+      visitorData: "Cgtnc0wxbEJ6NFJGTSiox77VBmLfAgrcAjIxLllUPU54ZlNrZ2lDMVlHLWhkSHRYUFN6cTh3WG93aDY4TjlDVmNMTnNtY2RJRFZMUjhZX0lVakJOamFwZHRwZXZnOEtUZnJGRHNfMFVNR1VTeFYwYTN0X3I2ay1uTFF2RzI5VUQybHRQdXZ2VEVxYmozZHFEWTZXY29wLXgxSGctamllaW0ybDR6eFJvTG9sWmN6LUlEVHNXb2xKOTktY1p6Q2tFTC1uR1BleXMyREt1UWF4S2xKdnVubGRRMTdCdkdDcFdMR1BGQkpZWlFCNUk0dUtYLVNIMEFjUzRpNllkWFJINUMyV25QZWZqdUpjOGZRWEF2NVV1Q1pITHNoRjlWMW5GNlQxWHpRUUFlWG40V25UbVE0SFNWWllBaGJpSUIzNWZTMnZXaFBCdnNpSFV5VWt5XzdacHB4SzgyZjBWWnYzSFRJQjk5NHg3QWRTUnhNeGRzc2ZfZw%3D%3D"
+    # Clients that currently survive YouTube bot-checks; update when youtube-plugin releases
+    # OAuth: one-time device-code sign-in (burner Google account recommended).
+    # On Lavalink start, the log prints a verification URL + code. After authorizing,
+    # a refresh token is printed once — save it here as refreshToken for persistence.
+    oauth:
+      enabled: true
+      refreshToken: null
     clients:
+      - TV
+      - IOS
       - MUSIC
       - WEB
       - WEBEMBEDDED
       - ANDROID_VR
+    # Remote cipher server (decrypts YouTube SABR signatures). Self-hosted yt-cipher.
+    remoteCipher:
+      url: "http://localhost:8002"
+      password: "pupu-cipher-2026"
+      userAgent: "pupu"
 metrics:
   prometheus:
     enabled: false

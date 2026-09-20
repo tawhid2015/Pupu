@@ -58,6 +58,18 @@ def emb(desc: str, title: str = None) -> discord.Embed:
 SEARCH_PREFIXES = ("scsearch:", "ytsearch:", "ytmsearch:", "spsearch:", "amsearch:", "dzsearch:")
 
 
+def clean_query(title: str, author: str = "") -> str:
+    """Strip decorations like '8K Full Song (Title Track) | ...' for a retry search."""
+    base = title.split("|")[0]
+    base = re.sub(r"\([^)]*\)", "", base)
+    base = re.sub(r"\[[^\]]*\]", "", base)
+    base = re.sub(r"(?i)\b(8k|4k|official|video|audio|full song|lyrical|hd)\b", "", base)
+    base = re.sub(r"\s+", " ", base).strip()
+    if author and author.endswith(" - Topic"):
+        author = author[:-8]
+    return f"{base} {author}".strip()
+
+
 async def search_tracks(query: str) -> wavelink.Search:
     if query.lower().startswith(SEARCH_PREFIXES):
         return await wavelink.Playable.search(query, source=None)
@@ -105,6 +117,8 @@ class Pupu(commands.Bot):
         player: wavelink.Player = payload.player
         if not player:
             return
+        player._fallback_count = 0
+        mark_playing(player, payload.track)
         track = payload.track
         chan = getattr(player, "home", None)
         if chan:
@@ -127,38 +141,42 @@ class Pupu(commands.Bot):
         await player.disconnect()
 
     async def on_wavelink_track_exception(self, payload: wavelink.TrackExceptionEventPayload):
-        player: wavelink.Player = payload.player
         track = payload.track
+        player: wavelink.Player = payload.player or next(
+            (p for p in _PLAYERS.values() if getattr(p, "_last_tried", None) == track.identifier),
+            None)
         exc = payload.exception or {}
         msg = exc.get("message", "unknown error")
         logger.error("TrackException on %s (%s): %s", track.title, track.source, msg)
         if not player:
             return
+        player = await revive_player(player)
+        if not player:
+            return
         chan = getattr(player, "home", None)
 
-        # One-shot SoundCloud fallback when a YouTube track can't stream
-        failed = getattr(player, "_fallback_failed", set())
-        if track.source == "youtube" and track.identifier not in failed:
-            failed.add(track.identifier)
-            player._fallback_failed = failed
+        # Retry chain with a cleaned-up title: another YouTube upload, then SoundCloud.
+        attempts = getattr(player, "_fallback_count", 0)
+        if track.source == "youtube" and attempts < 2:
+            player._fallback_count = attempts + 1
+            q = clean_query(track.title, track.author)
+            source = wavelink.TrackSource.SoundCloud if attempts == 1 else wavelink.TrackSource.YouTube
             try:
-                results = await wavelink.Playable.search(
-                    f"{track.title} {track.author}",
-                    source=wavelink.TrackSource.SoundCloud,
-                )
+                results = await wavelink.Playable.search(q, source=source)
             except Exception as e:
                 results = None
                 logger.error("fallback search failed: %s", e)
             if results:
-                alt = results[0]
-                logger.info("DIAG/fallback: %s -> %s", track.title, alt.title)
-                if chan:
+                alt = results.tracks[0] if isinstance(results, wavelink.Playlist) else results[0]
+                logger.info("fallback #%d (%s): %s -> %s", attempts + 1, source, track.title, alt.title)
+                if chan and attempts == 1:
                     try:
                         await chan.send(embed=emb(
                             f"**{track.title}** couldn't stream from YouTube. "
                             f"Playing the SoundCloud version instead: **{alt.title}** 🔁"))
                     except Exception:
                         pass
+                mark_playing(player, alt)
                 if player.playing or player.paused:
                     player.queue.put_at(0, alt)
                     await player.skip(force=True)
@@ -182,6 +200,44 @@ class Pupu(commands.Bot):
 
 bot = Pupu()
 
+# guild_id -> wavelink.Player, for recovering players when events arrive with player=None
+_PLAYERS: dict[int, wavelink.Player] = {}
+
+
+def mark_playing(player, track):
+    _PLAYERS[player.guild.id] = player
+    player._last_tried = track.identifier
+
+
+def player_alive(player) -> bool:
+    """True if the player is still registered on the Lavalink node and voice-connected."""
+    try:
+        node = wavelink.Pool.get_node()
+        players = getattr(node, "players", None) or getattr(node, "_players", {})
+        return player.guild.id in players and player.connected
+    except Exception:
+        return True
+
+
+async def revive_player(player):
+    """Return a live player, recreating it if wavelink destroyed it after a failed load."""
+    if player and player_alive(player):
+        return player
+    ch = getattr(player, "channel", None) if player else None
+    if not ch:
+        return None
+    try:
+        p2 = await ch.connect(cls=wavelink.Player, self_deaf=True)
+        p2.home = getattr(player, "home", None)
+        p2.inactive_timeout = INACTIVE_TIMEOUT
+        p2._fallback_count = getattr(player, "_fallback_count", 0)
+        _PLAYERS[ch.guild.id] = p2
+        logger.info("revived player for guild %s", ch.guild.id)
+        return p2
+    except Exception as e:
+        logger.error("revive failed: %s", e)
+        return None
+
 
 # ---------- helpers ----------
 async def ensure_player(ctx) -> wavelink.Player | None:
@@ -190,7 +246,15 @@ async def ensure_player(ctx) -> wavelink.Player | None:
         return None
     player: wavelink.Player = ctx.voice_client
     if player:
-        return player
+        if not player_alive(player):
+            # player was silently destroyed (e.g. after a failed load) — reconnect cleanly
+            try:
+                await player.disconnect()
+            except Exception:
+                pass
+            player = None
+        else:
+            return player
     if not ctx.author.voice or not ctx.author.voice.channel:
         await ctx.reply(embed=emb("Join a voice channel first. 🔊"))
         return None
@@ -230,7 +294,9 @@ async def play(ctx: commands.Context, *, query: str):
         await ctx.reply(embed=emb(f"**[{track.title}]({track.uri})**\nby {track.author}", "➕ Added to Queue"))
 
     if not player.playing:
-        await player.play(player.queue.get(), volume=60)
+        first = player.queue.get()
+        mark_playing(player, first)
+        await player.play(first, volume=60)
 
 
 @bot.hybrid_command(name="pause", description="Pause playback")
@@ -1042,6 +1108,13 @@ async def run_diagnostic():
             try:
                 await probe("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", "HTTP-DIRECT")
                 await probe("scsearch:lofi beats", "SOUNDCLOUD")
+                custom = os.environ.get("PUPU_DIAG_QUERY")
+                cq = Path("/tmp/pupu_diag_query.txt")
+                if not custom and cq.exists():
+                    custom = cq.read_text().strip()
+                    cq.unlink(missing_ok=True)
+                if custom:
+                    await probe(custom, "CUSTOM", 40)
                 # YouTube attempt: expect TrackException -> SoundCloud fallback handler fires
                 await probe("ytsearch:never gonna give you up rick astley", "YOUTUBE+FB", 30)
             except Exception as e:
