@@ -394,28 +394,72 @@ def get_player(ctx) -> wavelink.Player | None:
 
 # ---------- commands ----------
 @bot.hybrid_command(name="play", aliases=["p"], description="Play a song or add it to the queue")
-@discord.app_commands.describe(query="Song name or URL (YouTube / SoundCloud)")
+@discord.app_commands.describe(query="Song name or URL (YouTube / SoundCloud / Spotify)")
 async def play(ctx: commands.Context, *, query: str):
     await ctx.defer()
     player = await ensure_player(ctx)
     if not player:
         return
     player.home = ctx.channel
-    try:
-        results = await search_tracks(query)
-    except Exception as e:
-        logger.error("search error: %s", e)
-        return await ctx.reply(embed=emb("Search failed. Try again."))
-    if not results:
-        return await ctx.reply(embed=emb(f"No results for **{query}**."))
 
-    if isinstance(results, wavelink.Playlist):
-        added = await player.queue.put_wait(results)
-        await ctx.reply(embed=emb(f"Added **{added}** tracks from playlist **{results.name}**.", "➕ Queued"))
+    # Spotify has no direct audio source — resolve via its public metadata,
+    # then search YouTube for each track.
+    if "open.spotify.com" in query:
+        m = SPOTIFY_RE.search(query)
+        if not m:
+            return await ctx.reply(embed=emb("That Spotify link doesn't look right. ⚠️"))
+        kind = m.group(1)
+        note = None
+        if kind != "track":
+            note = await ctx.reply(embed=emb("Importing from Spotify… this can take a moment. ⏳"))
+        sp_name, pairs = await _fetch_spotify(query)
+        if not pairs:
+            msg = "Couldn't read that Spotify link. Is the track/playlist **public**? ⚠️"
+            return await (note.edit(embed=emb(msg)) if note else ctx.reply(embed=emb(msg)))
+        pairs = pairs[:playlist_db.MAX_TRACKS_PER_PLAYLIST]
+
+        async def one(title, artist):
+            try:
+                return await search_tracks(f"{title} {artist}".strip())
+            except Exception:
+                return None
+
+        resolved = await asyncio.gather(*(one(t, a) for t, a in pairs))
+        added, first_track = 0, None
+        for res in resolved:
+            if not res:
+                continue
+            t = res.tracks[0] if isinstance(res, wavelink.Playlist) else res[0]
+            await player.queue.put_wait(t)
+            added += 1
+            if first_track is None:
+                first_track = t
+        if not added:
+            msg = "Found the Spotify track but couldn't find a playable source for it. ⚠️"
+            return await (note.edit(embed=emb(msg)) if note else ctx.reply(embed=emb(msg)))
+        if kind == "track":
+            await ctx.reply(embed=emb(
+                f"**[{first_track.title}]({first_track.uri})**\nby {first_track.author}",
+                "➕ Added to Queue"))
+        else:
+            await note.edit(embed=emb(
+                f"Added **{added}** tracks from Spotify **{sp_name or 'link'}**.", "➕ Queued"))
     else:
-        track = results[0]
-        await player.queue.put_wait(track)
-        await ctx.reply(embed=emb(f"**[{track.title}]({track.uri})**\nby {track.author}", "➕ Added to Queue"))
+        try:
+            results = await search_tracks(query)
+        except Exception as e:
+            logger.error("search error: %s", e)
+            return await ctx.reply(embed=emb("Search failed. Try again."))
+        if not results:
+            return await ctx.reply(embed=emb(f"No results for **{query}**."))
+
+        if isinstance(results, wavelink.Playlist):
+            added = await player.queue.put_wait(results)
+            await ctx.reply(embed=emb(f"Added **{added}** tracks from playlist **{results.name}**.", "➕ Queued"))
+        else:
+            track = results[0]
+            await player.queue.put_wait(track)
+            await ctx.reply(embed=emb(f"**[{track.title}]({track.uri})**\nby {track.author}", "➕ Added to Queue"))
 
     if not player.playing:
         first = player.queue.get()
