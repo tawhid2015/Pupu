@@ -9,12 +9,30 @@
 # Stage 1: Build React frontend
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
-COPY frontend/package.json frontend/yarn.lock ./
-RUN yarn install --frozen-lockfile || yarn install
+COPY frontend/package.json ./
+# yarn.lock may be absent from the repo — install without it
+RUN yarn install --non-interactive
 COPY frontend/ ./
 RUN yarn build
 
-# Stage 2: Runtime image
+# Stage 2: Fetch + patch yt-dlp/ejs (YouTube player solver for yt-cipher).
+# The ejs/ folder is gitignored, so it must be rebuilt here exactly like
+# lavalink/yt-cipher/Dockerfile does.
+FROM denoland/deno:latest AS cipher-builder
+WORKDIR /usr/src/app
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+ARG EJS_COMMIT=cd4e87f52e87ab6d8b318fd3a817adda6fafa8dc
+RUN git init ejs && \
+    cd ejs && \
+    git remote add origin https://github.com/yt-dlp/ejs.git && \
+    git fetch --depth 1 origin "$EJS_COMMIT" && \
+    git checkout --detach FETCH_HEAD && \
+    cd ..
+COPY lavalink/yt-cipher/scripts/patch-ejs.ts ./scripts/patch-ejs.ts
+RUN deno run --allow-read --allow-write ./scripts/patch-ejs.ts
+RUN rm -rf ./ejs/.git ./ejs/node_modules || true
+
+# Stage 3: Runtime image
 FROM python:3.11-slim-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -58,6 +76,8 @@ COPY --from=frontend-builder /app/frontend/build /app/frontend/build
 # Copy backend and lavalink configuration
 COPY backend/ /app/backend/
 COPY lavalink/ /app/lavalink/
+# Overlay the patched ejs solver sources (gitignored, built in cipher-builder)
+COPY --from=cipher-builder /usr/src/app/ejs /app/lavalink/yt-cipher/ejs
 COPY supervisord.conf /app/supervisord.conf
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh

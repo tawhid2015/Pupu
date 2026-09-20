@@ -177,3 +177,18 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
 - Railway All-in-One now needs only 2 vars: DISCORD_BOT_TOKEN + SUPABASE_DB_URL (no DB plugin).
 - deploy/railway-deploy.sh marked LEGACY (it provisioned MongoDB).
 - NOTE: motor/pymongo still in requirements.txt (unused, harmless) — could be pruned later.
+
+## 2026-09-20 — Railway build failure fixed (yarn.lock + ejs)
+- Build failed: "/frontend/yarn.lock": not found → yarn.lock exists locally but is UNTRACKED
+  in git (platform commits never included it). Dockerfile stage 1 now copies only package.json
+  and runs plain `yarn install --non-interactive`.
+- Second latent bug found by audit: lavalink/yt-cipher/ejs/ is gitignored (per yt-cipher's own
+  .gitignore) but server.ts imports from ../ejs/... → added `cipher-builder` stage to root
+  Dockerfile that clones yt-dlp/ejs@cd4e87f + runs scripts/patch-ejs.ts (mirrors official
+  yt-cipher Dockerfile), then COPY --from=cipher-builder ejs into the runtime image.
+- Audited every Docker COPY source against `git ls-files` — all tracked (backend/*, lavalink/
+  application.yml, yt-cipher src, frontend/*). Untracked & intentionally excluded:
+  frontend/yarn.lock, lavalink/plugins/*.jar (downloaded at build), lavalink/Lavalink.jar
+  (downloaded at build), backend/.env (secrets — correctly NOT in image; env via Railway vars).
+- No docker daemon in this pod → could not run a local image build; Dockerfile is static-verified.
+  User must Save to GitHub → Railway Redeploy.
