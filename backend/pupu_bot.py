@@ -8,8 +8,11 @@ from pathlib import Path
 import discord
 from discord.ext import commands, tasks
 import wavelink
+import asyncpg
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
+
+import playlist_db
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -26,6 +29,12 @@ INACTIVE_TIMEOUT = 180  # seconds
 EMBED_COLOR = 0xB388FF
 mongo = AsyncIOMotorClient(os.environ["MONGO_URL"])
 db = mongo[os.environ["DB_NAME"]]
+pg: asyncpg.Pool | None = None
+
+
+def track_dict(t: wavelink.Playable) -> dict:
+    return {"title": t.title, "author": t.author, "uri": t.uri,
+            "length": t.length, "artwork": t.artwork}
 
 
 def fmt_time(ms: int) -> str:
@@ -59,6 +68,17 @@ class Pupu(commands.Bot):
         super().__init__(command_prefix=PREFIX, intents=intents, help_command=None)
 
     async def setup_hook(self) -> None:
+        global pg
+        dsn = os.environ.get("SUPABASE_DB_URL")
+        if dsn:
+            try:
+                pg = await asyncpg.create_pool(dsn, min_size=1, max_size=3,
+                                               statement_cache_size=0)
+                await playlist_db.ensure_schema(pg)
+                logger.info("Playlist DB connected (Supabase Postgres)")
+            except Exception as e:
+                pg = None
+                logger.error("Playlist DB connection failed: %s", e)
         node = wavelink.Node(uri=LAVALINK_URL, password=LAVALINK_PASSWORD, retries=3)
         await wavelink.Pool.connect(nodes=[node], client=self, cache_capacity=100)
         try:
@@ -387,8 +407,179 @@ async def help_cmd(ctx: commands.Context):
                        "`clear` · `loop`"), inline=False)
     e.add_field(name="🔊 Voice",
                 value="`join` · `leave` · `volume <0-100>`", inline=False)
+    e.add_field(name="💾 Playlists",
+                value=("`playlist create <name>` · `playlist save <name>`\n"
+                       "`playlist add <name> <song>` · `playlist load <name>`\n"
+                       "`playlist view <name>` · `playlist remove <name> <#>`\n"
+                       "`playlist delete <name>` · `playlist list`"), inline=False)
     e.set_footer(text="Pupu • powered by Lavalink v4")
     await ctx.reply(embed=e)
+
+
+# ---------- playlists (Supabase Postgres) ----------
+def pg_check() -> bool:
+    return pg is not None
+
+
+@bot.hybrid_group(name="playlist", aliases=["pl"], fallback="list",
+                  description="Manage your saved playlists")
+async def playlist_group(ctx: commands.Context):
+    if not pg_check():
+        return await ctx.reply(embed=emb("Playlist storage is unavailable right now. ⚠️"))
+    rows = await playlist_db.list_playlists(pg, ctx.author.id)
+    if not rows:
+        return await ctx.reply(embed=emb(
+            f"You have no playlists yet. Create one with `{PREFIX}playlist create <name>`.",
+            "💾 Your Playlists"))
+    lines = [f"`{i}.` **{r['name']}** — {r['tracks']} track{'s' if r['tracks'] != 1 else ''}"
+             for i, r in enumerate(rows, 1)]
+    await ctx.reply(embed=emb("\n".join(lines), "💾 Your Playlists"))
+
+
+@playlist_group.command(name="create", description="Create a new playlist")
+@discord.app_commands.describe(name="Playlist name")
+async def pl_create(ctx: commands.Context, name: str):
+    if not pg_check():
+        return await ctx.reply(embed=emb("Playlist storage is unavailable right now. ⚠️"))
+    res = await playlist_db.create_playlist(pg, ctx.author.id, name)
+    if res == "ok":
+        await ctx.reply(embed=emb(f"Playlist **{playlist_db.clean_name(name)}** created. ✅\n"
+                                  f"Add songs with `{PREFIX}pl add {playlist_db.clean_name(name)} <song>`."))
+    elif res == "exists":
+        await ctx.reply(embed=emb("You already have a playlist with that name."))
+    else:
+        await ctx.reply(embed=emb(f"Limit reached ({playlist_db.MAX_PLAYLISTS_PER_USER} playlists)."))
+
+
+@playlist_group.command(name="save", description="Save the current queue into a playlist")
+@discord.app_commands.describe(name="Playlist name (created if missing)")
+async def pl_save(ctx: commands.Context, name: str):
+    if not pg_check():
+        return await ctx.reply(embed=emb("Playlist storage is unavailable right now. ⚠️"))
+    player = get_player(ctx)
+    tracks = []
+    if player and player.current:
+        tracks.append(track_dict(player.current))
+    if player:
+        tracks.extend(track_dict(t) for t in list(player.queue))
+    if not tracks:
+        return await ctx.reply(embed=emb("Nothing is playing or queued to save."))
+    await playlist_db.create_playlist(pg, ctx.author.id, name)
+    res = await playlist_db.save_tracks(pg, ctx.author.id, name, tracks)
+    if res == "ok":
+        await ctx.reply(embed=emb(
+            f"Saved **{len(tracks)}** tracks to **{playlist_db.clean_name(name)}**. 💾"))
+    else:
+        await ctx.reply(embed=emb("Couldn't save the playlist."))
+
+
+@playlist_group.command(name="add", description="Add a song to a playlist")
+@discord.app_commands.describe(name="Playlist name", query="Song name or URL")
+async def pl_add(ctx: commands.Context, name: str, *, query: str):
+    if not pg_check():
+        return await ctx.reply(embed=emb("Playlist storage is unavailable right now. ⚠️"))
+    await ctx.defer()
+    try:
+        results = await search_tracks(query)
+    except Exception:
+        return await ctx.reply(embed=emb("Search failed. Try again."))
+    if not results:
+        return await ctx.reply(embed=emb(f"No results for **{query}**."))
+    track = results.tracks[0] if isinstance(results, wavelink.Playlist) else results[0]
+    res = await playlist_db.add_track(pg, ctx.author.id, name, track_dict(track))
+    if res == "ok":
+        await ctx.reply(embed=emb(
+            f"**[{track.title}]({track.uri})** added to **{playlist_db.clean_name(name)}**. ➕"))
+    elif res == "missing":
+        await ctx.reply(embed=emb(
+            f"Playlist **{playlist_db.clean_name(name)}** not found. "
+            f"Create it with `{PREFIX}pl create {playlist_db.clean_name(name)}`."))
+    else:
+        await ctx.reply(embed=emb(
+            f"Playlist is full ({playlist_db.MAX_TRACKS_PER_PLAYLIST} tracks)."))
+
+
+@playlist_group.command(name="load", description="Queue a saved playlist")
+@discord.app_commands.describe(name="Playlist name")
+async def pl_load(ctx: commands.Context, name: str):
+    if not pg_check():
+        return await ctx.reply(embed=emb("Playlist storage is unavailable right now. ⚠️"))
+    await ctx.defer()
+    rows = await playlist_db.get_tracks(pg, ctx.author.id, name)
+    if rows is None:
+        return await ctx.reply(embed=emb(f"Playlist **{playlist_db.clean_name(name)}** not found."))
+    if not rows:
+        return await ctx.reply(embed=emb(f"Playlist **{playlist_db.clean_name(name)}** is empty."))
+    player = await ensure_player(ctx)
+    if not player:
+        return
+    player.home = ctx.channel
+    added = 0
+    for r in rows:
+        try:
+            results = await wavelink.Playable.search(r["uri"]) if r["uri"] else None
+            if not results:
+                results = await search_tracks(f"{r['title']} {r['author'] or ''}")
+            if not results:
+                continue
+            track = results.tracks[0] if isinstance(results, wavelink.Playlist) else results[0]
+            await player.queue.put_wait(track)
+            added += 1
+        except Exception as e:
+            logger.warning("playlist load skip %s: %s", r["title"], e)
+    if not player.playing and len(player.queue):
+        await player.play(player.queue.get(), volume=60)
+    if added:
+        await ctx.reply(embed=emb(
+            f"Loaded **{added}** track{'s' if added != 1 else ''} from "
+            f"**{playlist_db.clean_name(name)}** into the queue. 🎶"))
+    else:
+        await ctx.reply(embed=emb("Couldn't load any tracks from that playlist. ⚠️"))
+
+
+@playlist_group.command(name="view", description="Show tracks in a playlist")
+@discord.app_commands.describe(name="Playlist name")
+async def pl_view(ctx: commands.Context, name: str):
+    if not pg_check():
+        return await ctx.reply(embed=emb("Playlist storage is unavailable right now. ⚠️"))
+    rows = await playlist_db.get_tracks(pg, ctx.author.id, name)
+    if rows is None:
+        return await ctx.reply(embed=emb(f"Playlist **{playlist_db.clean_name(name)}** not found."))
+    if not rows:
+        return await ctx.reply(embed=emb(f"Playlist **{playlist_db.clean_name(name)}** is empty."))
+    lines = [f"`{i}.` [{r['title']}]({r['uri']}) — {fmt_time(r['length_ms'] or 0)}"
+             if r["uri"] else f"`{i}.` {r['title']} — {fmt_time(r['length_ms'] or 0)}"
+             for i, r in enumerate(rows[:15], 1)]
+    extra = len(rows) - 15
+    if extra > 0:
+        lines.append(f"...and **{extra}** more")
+    await ctx.reply(embed=emb("\n".join(lines),
+                              f"💾 {playlist_db.clean_name(name)} ({len(rows)} tracks)"))
+
+
+@playlist_group.command(name="remove", description="Remove track # from a playlist")
+@discord.app_commands.describe(name="Playlist name", index="Track number (see playlist view)")
+async def pl_remove(ctx: commands.Context, name: str, index: int):
+    if not pg_check():
+        return await ctx.reply(embed=emb("Playlist storage is unavailable right now. ⚠️"))
+    res = await playlist_db.remove_track(pg, ctx.author.id, name, index)
+    if res == "missing":
+        await ctx.reply(embed=emb(f"Playlist **{playlist_db.clean_name(name)}** not found."))
+    elif res == "badindex":
+        await ctx.reply(embed=emb("Invalid track number."))
+    else:
+        await ctx.reply(embed=emb(f"Removed **{res}**. 🗑️"))
+
+
+@playlist_group.command(name="delete", description="Delete a playlist")
+@discord.app_commands.describe(name="Playlist name")
+async def pl_delete(ctx: commands.Context, name: str):
+    if not pg_check():
+        return await ctx.reply(embed=emb("Playlist storage is unavailable right now. ⚠️"))
+    if await playlist_db.delete_playlist(pg, ctx.author.id, name):
+        await ctx.reply(embed=emb(f"Playlist **{playlist_db.clean_name(name)}** deleted. 🗑️"))
+    else:
+        await ctx.reply(embed=emb(f"Playlist **{playlist_db.clean_name(name)}** not found."))
 
 
 @play.error
