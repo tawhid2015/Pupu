@@ -120,6 +120,30 @@ class Pupu(commands.Bot):
             return
         mark_playing(player, payload.track)
         track = payload.track
+
+        # Song boundary: if a new song starts while nobody is in the voice channel,
+        # pause it right away (at 0:00) and schedule a leave. We intentionally do NOT
+        # pause mid-song on disconnect — people with flaky internet reconnect often.
+        channel = getattr(player, "channel", None)
+        if (channel and not getattr(player, "_diag", False)
+                and not any(not m.bot for m in channel.members)):
+            try:
+                await player.pause(True)
+            except Exception:
+                pass
+            player._empty_paused = True
+            home0 = getattr(player, "home", None)
+            if home0 and not getattr(player, "_empty_notified", False):
+                player._empty_notified = True
+                try:
+                    await home0.send(embed=emb(
+                        "Song ended and nobody is listening — I paused the music. "
+                        "Rejoin to resume, or I'll leave soon. 👋"))
+                except Exception:
+                    pass
+            _schedule_leave(player)
+            return
+
         # Debounce: a track that fails to load and gets retried re-emits track_start —
         # don't announce the same song twice within 2 minutes.
         now = datetime.now(timezone.utc).timestamp()
@@ -214,8 +238,8 @@ class Pupu(commands.Bot):
             await player.skip(force=True)
 
     async def on_voice_state_update(self, member, before, after):
-        # Leave-when-alone: pause when the channel empties, resume when someone returns,
-        # and disconnect after EMPTY_LEAVE_DELAY if still empty.
+        # Resume-only: someone rejoined while we auto-paused at an empty-channel song
+        # boundary. (Pausing happens in on_wavelink_track_start, never mid-song.)
         if member.id == self.user.id:
             if after.channel is None:
                 _cancel_leave(member.guild.id)
@@ -224,23 +248,7 @@ class Pupu(commands.Bot):
         if not player or not player.connected or player.channel is None:
             return
         humans = [m for m in player.channel.members if not m.bot]
-        if not humans:
-            if player.playing and not player.paused:
-                try:
-                    await player.pause(True)
-                except Exception:
-                    pass
-            player._empty_paused = True
-            home = getattr(player, "home", None)
-            if home and not getattr(player, "_empty_notified", False):
-                player._empty_notified = True
-                try:
-                    await home.send(embed=emb(
-                        "Everyone left the channel — I paused the music and will leave soon. 👋"))
-                except Exception:
-                    pass
-            _schedule_leave(player)
-        else:
+        if humans:
             _cancel_leave(member.guild.id)
             player._empty_notified = False
             if getattr(player, "_empty_paused", False):
@@ -1182,6 +1190,7 @@ async def run_diagnostic():
                 continue
             player.inactive_timeout = 9999
             player.inactive_channel_tokens = None  # diag runs in an empty channel
+            player._diag = True  # skip empty-channel pause logic during diagnostics
             await asyncio.sleep(2)
             sid = wavelink.Pool.get_node().session_id
 

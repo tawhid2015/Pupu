@@ -247,3 +247,14 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
   4. Now Playing debounce: same track identifier not re-announced within 120s
      (player._announced = (identifier, ts)).
 - Bot restarted clean (Prevent#9955). Needs user confirmation in Discord.
+
+## 2026-09-20 — Empty-channel pause moved to song boundary only
+- User feedback: pausing mid-song when the channel empties is bad for users with flaky
+  internet (reconnect spam = constant pause/resume). Pause must happen ONLY at song end.
+- CHANGE: on_voice_state_update is now RESUME-ONLY (rejoin → cancel leave + resume).
+  Empty-channel detection moved to on_wavelink_track_start: if a new song starts and the
+  channel has no humans → pause(True) at 0:00, notify, _schedule_leave (60s).
+- Net behavior: current song always plays to its natural end; pause happens at the next
+  song's start only if nobody is listening; rejoin → "Welcome back" + resume; 60s empty → leave.
+- Diag harness sets player._diag=True to skip empty-channel logic (it joins empty channels).
+- Bot restarted clean (Prevent#9955). Needs user Discord verification.
