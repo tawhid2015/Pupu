@@ -271,15 +271,44 @@ cd frontend && yarn install && yarn start
 
 ## 7. Railway deployment guide (complete)
 
+### 7.0 Fastest path — one-command bootstrap (`deploy/railway-deploy.sh`)
+
+Instead of clicking through the dashboard, run the bootstrap script — it creates the whole
+project (MongoDB + 5 services), sets every variable, and deploys each service:
+
+```bash
+npm i -g @railway/cli          # or: brew install railway
+railway login                  # browser auth
+bash deploy/railway-deploy.sh  # from the repo root
+```
+
+It prompts only for the Discord token and Supabase DSN (everything else has working
+defaults). Afterwards, optionally connect each service to your GitHub repo
+(*Service → Settings → Source*, Root Directories in the table below) so `git push`
+auto-deploys.
+
+### One-click "Deploy on Railway" button (optional)
+
+After the project exists once in Railway: **Workspace → Templates → Publish** on the
+project → Railway gives you a `TEMPLATE_ID`. Then add this button to the top of the README
+so anyone (including future you) redeploys the entire stack in one click:
+
+```md
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template/<TEMPLATE_ID>)
+```
+
+---
+
 The repo ships Railway-ready: each deployable folder has a **`Dockerfile` + `railway.toml`**.
-You will create **one Railway project with 4 services**:
+You will create **one Railway project with 5 services** (4 + the yt-cipher helper):
 
 | # | Service | Root Directory | Purpose |
 |---|---|---|---|
-| 1 | `lavalink` | `/lavalink` | audio node |
-| 2 | `pupu-bot` | `/backend` | Discord bot (worker, no public port) |
-| 3 | `pupu-api` | `/backend` | FastAPI (public, for dashboard) |
-| 4 | `pupu-web` | `/frontend` | static React (public) |
+| 1 | `yt-cipher` | `/lavalink/yt-cipher` | YouTube signature decryption (SABR) |
+| 2 | `lavalink` | `/lavalink` | audio node |
+| 3 | `pupu-bot` | `/backend` | Discord bot (worker, no public port) |
+| 4 | `pupu-api` | `/backend` | FastAPI (public, for dashboard) |
+| 5 | `pupu-web` | `/frontend` | static React (public) |
 
 Plus one **MongoDB** database (Railway plugin or Atlas).
 

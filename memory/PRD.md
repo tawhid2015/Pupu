@@ -133,3 +133,19 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
   PlayStation UA) and 3 new rows in §13 Troubleshooting.
 - Verified via screenshot: desktop 1920 + mobile 390 render correctly, copy button flips to
   "Copied!" on click. No real horizontal overflow (only fixed decorative glow).
+
+## 2026-09-20 — Railway one-command deploy (DONE)
+- User chose "all services import in one click" → built a CLI bootstrap since Railway has no
+  true repo-based one-click for monorepos (templates must be published from a deployed project).
+- NEW: deploy/railway-deploy.sh — interactive Railway CLI bootstrap: creates project, adds
+  MongoDB, creates + configures + deploys all 5 services (yt-cipher, lavalink, pupu-bot,
+  pupu-api, pupu-web) via `railway up`, generates domains, uses reference variables
+  (${{svc.RAILWAY_PUBLIC_DOMAIN}}, ${{MongoDB.MONGO_URL}}). Prompts only for Discord token +
+  Supabase DSN. bash -n syntax-checked. yt-cipher PORT pinned to 8001 for private-DNS reachability.
+- NEW: lavalink/yt-cipher/railway.toml (was missing — Dockerfile already existed).
+- application.yml now env-templates YTCIPHER_URL, YTCIPHER_PASSWORD, YOUTUBE_REFRESH_TOKEN
+  (defaults = current working values → local Lavalink untouched, no restart needed).
+- README §7: new 7.0 bootstrap section + one-click Deploy-button instructions (publish template
+  → button), service table updated to 5 services, env-var matrix includes yt-cipher column.
+- User must still: `railway login` + run the script (needs their Railway account), optionally
+  connect GitHub sources for push-to-deploy.
