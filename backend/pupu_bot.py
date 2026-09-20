@@ -421,6 +421,13 @@ def pg_check() -> bool:
     return pg is not None
 
 
+async def name_invalid(ctx, name: str) -> bool:
+    if not playlist_db.clean_name(name):
+        await ctx.reply(embed=emb("Please provide a valid playlist name."))
+        return True
+    return False
+
+
 @bot.hybrid_group(name="playlist", aliases=["pl"], fallback="list",
                   description="Manage your saved playlists")
 async def playlist_group(ctx: commands.Context):
@@ -441,6 +448,8 @@ async def playlist_group(ctx: commands.Context):
 async def pl_create(ctx: commands.Context, name: str):
     if not pg_check():
         return await ctx.reply(embed=emb("Playlist storage is unavailable right now. ⚠️"))
+    if await name_invalid(ctx, name):
+        return
     res = await playlist_db.create_playlist(pg, ctx.author.id, name)
     if res == "ok":
         await ctx.reply(embed=emb(f"Playlist **{playlist_db.clean_name(name)}** created. ✅\n"
@@ -456,6 +465,8 @@ async def pl_create(ctx: commands.Context, name: str):
 async def pl_save(ctx: commands.Context, name: str):
     if not pg_check():
         return await ctx.reply(embed=emb("Playlist storage is unavailable right now. ⚠️"))
+    if await name_invalid(ctx, name):
+        return
     player = get_player(ctx)
     tracks = []
     if player and player.current:

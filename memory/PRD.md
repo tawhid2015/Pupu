@@ -35,6 +35,15 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
 - Web status dashboard: online state, server/listener counts, latency, live sessions, command reference
 - Verified: bot online (98 guilds), Lavalink node ready, 16 slash cmds synced, YouTube search working, status API live
 
+## Playlist system (2026-09-20)
+- Supabase Postgres via pooler (SUPABASE_DB_URL in backend/.env; direct db.* host doesn't
+  resolve, use aws-0-ap-southeast-1.pooler.supabase.com:5432, user postgres.<ref>)
+- /app/backend/playlist_db.py: playlists + playlist_tracks tables, asyncpg pool
+  (statement_cache_size=0, min1/max3), limits: 25 playlists/user, 100 tracks/playlist
+- Hybrid group `.playlist` / `/playlist` (alias `.pl`): create, save (current+queue), add,
+  load (re-resolves by URI, falls back to title search), view, remove, delete, list
+- Tests: /app/backend/tests/test_playlist_db.py, report iteration_3.json (100%)
+
 ## Notes / requirements outside build
 - Discord Developer Portal: Message Content Intent must be ON (enabled in code intents; also toggle in portal)
 - Bot must be invited with Connect + Speak voice permissions
