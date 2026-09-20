@@ -1,0 +1,384 @@
+"""Pupu — Discord music bot (discord.py + Wavelink v3, Lavalink v4)."""
+import os
+import asyncio
+import logging
+from datetime import datetime, timezone
+from pathlib import Path
+
+import discord
+from discord.ext import commands, tasks
+import wavelink
+from dotenv import load_dotenv
+from motor.motor_asyncio import AsyncIOMotorClient
+
+ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / ".env")
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger("pupu")
+
+TOKEN = os.environ["DISCORD_BOT_TOKEN"]
+LAVALINK_URL = os.environ["LAVALINK_URL"]
+LAVALINK_PASSWORD = os.environ["LAVALINK_PASSWORD"]
+PREFIX = "."
+INACTIVE_TIMEOUT = 180  # seconds
+
+EMBED_COLOR = 0xB388FF
+mongo = AsyncIOMotorClient(os.environ["MONGO_URL"])
+db = mongo[os.environ["DB_NAME"]]
+
+
+def fmt_time(ms: int) -> str:
+    s = int(ms // 1000)
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    return f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
+
+
+def emb(desc: str, title: str = None) -> discord.Embed:
+    e = discord.Embed(description=desc, color=EMBED_COLOR)
+    if title:
+        e.title = title
+    return e
+
+
+class Pupu(commands.Bot):
+    def __init__(self):
+        intents = discord.Intents.default()
+        intents.message_content = True
+        intents.voice_states = True
+        super().__init__(command_prefix=PREFIX, intents=intents, help_command=None)
+
+    async def setup_hook(self) -> None:
+        node = wavelink.Node(uri=LAVALINK_URL, password=LAVALINK_PASSWORD, retries=3)
+        await wavelink.Pool.connect(nodes=[node], client=self, cache_capacity=100)
+        try:
+            synced = await self.tree.sync()
+            logger.info("Synced %d slash commands", len(synced))
+        except Exception as e:
+            logger.error("Slash sync failed: %s", e)
+
+    async def on_ready(self):
+        logger.info("Pupu online as %s (%d guilds)", self.user, len(self.guilds))
+        if not push_status.is_running():
+            push_status.start()
+
+    async def on_wavelink_node_ready(self, payload: wavelink.NodeReadyEventPayload):
+        logger.info("Lavalink node ready: %s", payload.node.uri)
+
+    async def on_wavelink_track_start(self, payload: wavelink.TrackStartEventPayload):
+        player: wavelink.Player = payload.player
+        if not player:
+            return
+        track = payload.track
+        chan = getattr(player, "home", None)
+        if chan:
+            e = emb(f"**[{track.title}]({track.uri})**\nby {track.author}", "🎶 Now Playing")
+            if track.artwork:
+                e.set_thumbnail(url=track.artwork)
+            e.add_field(name="Duration", value=fmt_time(track.length))
+            try:
+                await chan.send(embed=e)
+            except Exception:
+                pass
+
+    async def on_wavelink_inactive_player(self, player: wavelink.Player):
+        chan = getattr(player, "home", None)
+        if chan:
+            try:
+                await chan.send(embed=emb("Left the channel due to inactivity. 💤"))
+            except Exception:
+                pass
+        await player.disconnect()
+
+
+bot = Pupu()
+
+
+# ---------- helpers ----------
+async def ensure_player(ctx) -> wavelink.Player | None:
+    if ctx.guild is None:
+        await ctx.reply(embed=emb("Commands only work inside a server."))
+        return None
+    player: wavelink.Player = ctx.voice_client
+    if player:
+        return player
+    if not ctx.author.voice or not ctx.author.voice.channel:
+        await ctx.reply(embed=emb("Join a voice channel first. 🔊"))
+        return None
+    player = await ctx.author.voice.channel.connect(cls=wavelink.Player, self_deaf=True)
+    player.home = ctx.channel
+    player.inactive_timeout = INACTIVE_TIMEOUT
+    return player
+
+
+def get_player(ctx) -> wavelink.Player | None:
+    return ctx.voice_client
+
+
+# ---------- commands ----------
+@bot.hybrid_command(name="play", aliases=["p"], description="Play a song or add it to the queue")
+@discord.app_commands.describe(query="Song name or URL (YouTube / SoundCloud)")
+async def play(ctx: commands.Context, *, query: str):
+    await ctx.defer()
+    player = await ensure_player(ctx)
+    if not player:
+        return
+    player.home = ctx.channel
+    try:
+        results = await wavelink.Playable.search(query)
+    except Exception as e:
+        logger.error("search error: %s", e)
+        return await ctx.reply(embed=emb("Search failed. Try again."))
+    if not results:
+        return await ctx.reply(embed=emb(f"No results for **{query}**."))
+
+    if isinstance(results, wavelink.Playlist):
+        added = await player.queue.put_wait(results)
+        await ctx.reply(embed=emb(f"Added **{added}** tracks from playlist **{results.name}**.", "➕ Queued"))
+    else:
+        track = results[0]
+        await player.queue.put_wait(track)
+        await ctx.reply(embed=emb(f"**[{track.title}]({track.uri})**\nby {track.author}", "➕ Added to Queue"))
+
+    if not player.playing:
+        await player.play(player.queue.get(), volume=60)
+
+
+@bot.hybrid_command(name="pause", description="Pause playback")
+async def pause(ctx: commands.Context):
+    player = get_player(ctx)
+    if not player or not player.playing:
+        return await ctx.reply(embed=emb("Nothing is playing."))
+    await player.pause(True)
+    await ctx.reply(embed=emb("Paused. ⏸️"))
+
+
+@bot.hybrid_command(name="resume", description="Resume playback")
+async def resume(ctx: commands.Context):
+    player = get_player(ctx)
+    if not player:
+        return await ctx.reply(embed=emb("Nothing to resume."))
+    await player.pause(False)
+    await ctx.reply(embed=emb("Resumed. ▶️"))
+
+
+@bot.hybrid_command(name="skip", aliases=["s"], description="Skip the current track")
+async def skip(ctx: commands.Context):
+    player = get_player(ctx)
+    if not player or not player.playing:
+        return await ctx.reply(embed=emb("Nothing to skip."))
+    await player.skip(force=True)
+    await ctx.reply(embed=emb("Skipped. ⏭️"))
+
+
+@bot.hybrid_command(name="stop", description="Stop playback and clear the queue")
+async def stop(ctx: commands.Context):
+    player = get_player(ctx)
+    if not player:
+        return await ctx.reply(embed=emb("Nothing is playing."))
+    player.queue.clear()
+    await player.stop()
+    await ctx.reply(embed=emb("Stopped and cleared the queue. ⏹️"))
+
+
+@bot.hybrid_command(name="nowplaying", aliases=["np"], description="Show the current track")
+async def nowplaying(ctx: commands.Context):
+    player = get_player(ctx)
+    if not player or not player.current:
+        return await ctx.reply(embed=emb("Nothing is playing."))
+    t = player.current
+    pos, total = player.position, t.length
+    filled = int((pos / total) * 20) if total else 0
+    bar = "▬" * filled + "🔘" + "▬" * (20 - filled)
+    e = emb(f"**[{t.title}]({t.uri})**\nby {t.author}", "🎧 Now Playing")
+    e.add_field(name="Progress", value=f"{bar}\n`{fmt_time(pos)} / {fmt_time(total)}`", inline=False)
+    e.add_field(name="Loop", value=player.queue.mode.name, inline=True)
+    e.add_field(name="Volume", value=f"{player.volume}%", inline=True)
+    if t.artwork:
+        e.set_thumbnail(url=t.artwork)
+    await ctx.reply(embed=e)
+
+
+@bot.hybrid_command(name="seek", description="Jump to a position, e.g. 1:30")
+@discord.app_commands.describe(position="Time like 90 or 1:30")
+async def seek(ctx: commands.Context, position: str):
+    player = get_player(ctx)
+    if not player or not player.current:
+        return await ctx.reply(embed=emb("Nothing is playing."))
+    try:
+        if ":" in position:
+            m, s = position.split(":")
+            secs = int(m) * 60 + int(s)
+        else:
+            secs = int(position)
+    except ValueError:
+        return await ctx.reply(embed=emb("Invalid time. Use `90` or `1:30`."))
+    await player.seek(secs * 1000)
+    await ctx.reply(embed=emb(f"Seeked to `{fmt_time(secs * 1000)}`. ⏩"))
+
+
+@bot.hybrid_command(name="queue", aliases=["q"], description="Show the queue")
+async def queue_cmd(ctx: commands.Context):
+    player = get_player(ctx)
+    if not player:
+        return await ctx.reply(embed=emb("Nothing is playing."))
+    lines = []
+    if player.current:
+        lines.append(f"**Now:** [{player.current.title}]({player.current.uri})")
+    upcoming = list(player.queue)[:10]
+    for i, t in enumerate(upcoming, 1):
+        lines.append(f"`{i}.` [{t.title}]({t.uri}) — {fmt_time(t.length)}")
+    extra = len(player.queue) - len(upcoming)
+    if extra > 0:
+        lines.append(f"...and **{extra}** more")
+    if not lines:
+        return await ctx.reply(embed=emb("The queue is empty."))
+    await ctx.reply(embed=emb("\n".join(lines), "📜 Queue"))
+
+
+@bot.hybrid_command(name="shuffle", description="Shuffle the queue")
+async def shuffle(ctx: commands.Context):
+    player = get_player(ctx)
+    if not player or len(player.queue) < 2:
+        return await ctx.reply(embed=emb("Not enough tracks to shuffle."))
+    player.queue.shuffle()
+    await ctx.reply(embed=emb("Queue shuffled. 🔀"))
+
+
+@bot.hybrid_command(name="remove", description="Remove a track by its queue number")
+@discord.app_commands.describe(index="Position in the queue")
+async def remove(ctx: commands.Context, index: int):
+    player = get_player(ctx)
+    if not player or len(player.queue) < index or index < 1:
+        return await ctx.reply(embed=emb("Invalid track number."))
+    track = player.queue[index - 1]
+    del player.queue[index - 1]
+    await ctx.reply(embed=emb(f"Removed **{track.title}**. 🗑️"))
+
+
+@bot.hybrid_command(name="clear", description="Clear the queue")
+async def clear(ctx: commands.Context):
+    player = get_player(ctx)
+    if not player:
+        return await ctx.reply(embed=emb("Nothing is playing."))
+    player.queue.clear()
+    await ctx.reply(embed=emb("Queue cleared. 🧹"))
+
+
+@bot.hybrid_command(name="loop", description="Cycle loop mode: off / track / queue")
+async def loop(ctx: commands.Context):
+    player = get_player(ctx)
+    if not player:
+        return await ctx.reply(embed=emb("Nothing is playing."))
+    mode = player.queue.mode
+    if mode == wavelink.QueueMode.normal:
+        player.queue.mode = wavelink.QueueMode.loop
+        msg = "Looping **current track**. 🔂"
+    elif mode == wavelink.QueueMode.loop:
+        player.queue.mode = wavelink.QueueMode.loop_all
+        msg = "Looping **whole queue**. 🔁"
+    else:
+        player.queue.mode = wavelink.QueueMode.normal
+        msg = "Loop **off**. ➡️"
+    await ctx.reply(embed=emb(msg))
+
+
+@bot.hybrid_command(name="volume", aliases=["vol"], description="Set volume 0-100")
+@discord.app_commands.describe(level="Volume between 0 and 100")
+async def volume(ctx: commands.Context, level: int):
+    player = get_player(ctx)
+    if not player:
+        return await ctx.reply(embed=emb("Nothing is playing."))
+    level = max(0, min(100, level))
+    await player.set_volume(level)
+    await ctx.reply(embed=emb(f"Volume set to **{level}%**. 🔊"))
+
+
+@bot.hybrid_command(name="join", description="Make Pupu join your voice channel")
+async def join(ctx: commands.Context):
+    if get_player(ctx):
+        return await ctx.reply(embed=emb("Already connected."))
+    player = await ensure_player(ctx)
+    if player:
+        await ctx.reply(embed=emb(f"Joined **{ctx.author.voice.channel.name}**. 👋"))
+
+
+@bot.hybrid_command(name="leave", aliases=["dc", "disconnect"], description="Disconnect Pupu")
+async def leave(ctx: commands.Context):
+    player = get_player(ctx)
+    if not player:
+        return await ctx.reply(embed=emb("Not connected."))
+    await player.disconnect()
+    await ctx.reply(embed=emb("Disconnected. See you! 👋"))
+
+
+@bot.hybrid_command(name="help", description="Show all commands")
+async def help_cmd(ctx: commands.Context):
+    e = discord.Embed(title="🎵 Pupu — Commands", color=EMBED_COLOR,
+                      description=f"Use `{PREFIX}command` or `/command`. Both work!")
+    e.add_field(name="▶️ Playback",
+                value=("`play <song/url>` · `pause` · `resume`\n"
+                       "`skip` · `stop` · `nowplaying` · `seek <time>`"), inline=False)
+    e.add_field(name="📜 Queue",
+                value=("`queue` · `shuffle` · `remove <#>`\n"
+                       "`clear` · `loop`"), inline=False)
+    e.add_field(name="🔊 Voice",
+                value="`join` · `leave` · `volume <0-100>`", inline=False)
+    e.set_footer(text="Pupu • powered by Lavalink v4")
+    await ctx.reply(embed=e)
+
+
+@play.error
+@volume.error
+@remove.error
+@seek.error
+async def arg_error(ctx, error):
+    if isinstance(error, (commands.MissingRequiredArgument, commands.BadArgument)):
+        await ctx.reply(embed=emb("Missing or invalid argument. Check `.help`."))
+
+
+# ---------- status writer for the web page ----------
+@tasks.loop(seconds=10)
+async def push_status():
+    players = []
+    for vc in bot.voice_clients:
+        if isinstance(vc, wavelink.Player) and vc.current:
+            players.append({
+                "guild": vc.guild.name if vc.guild else "?",
+                "title": vc.current.title,
+                "author": vc.current.author,
+                "uri": vc.current.uri,
+                "artwork": vc.current.artwork,
+                "paused": vc.paused,
+                "position": vc.position,
+                "length": vc.current.length,
+            })
+    doc = {
+        "_id": "pupu",
+        "online": True,
+        "name": str(bot.user) if bot.user else "Pupu",
+        "avatar": str(bot.user.display_avatar.url) if bot.user else None,
+        "guilds": len(bot.guilds),
+        "users": sum(g.member_count or 0 for g in bot.guilds),
+        "active_players": len(players),
+        "players": players,
+        "latency_ms": round(bot.latency * 1000) if bot.latency else None,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        await db.bot_status.replace_one({"_id": "pupu"}, doc, upsert=True)
+    except Exception as e:
+        logger.error("status write failed: %s", e)
+
+
+async def main():
+    async with bot:
+        await bot.start(TOKEN)
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
