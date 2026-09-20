@@ -214,3 +214,19 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
 - Pod incident: after pod resume, Lavalink was down (FATAL: can't find command 'java' on boot,
   then restart worked) and wavelink exhausted retries → needed pupu_bot restart. If bot reports
   Lavalink connection refused after a pod resume: restart lavalink, THEN restart pupu_bot.
+
+## 2026-09-20 — Auto-advance queue + leave-when-alone (DONE, needs user Discord test)
+- ROOT CAUSE of "next song won't auto-play": player.autoplay was never set → Wavelink v3
+  defaults to AutoPlayMode.disabled, so the queue never advances after a track ends.
+- FIX: set `player.autoplay = wavelink.AutoPlayMode.enabled` in ensure_player() AND
+  revive_player(). This: (a) auto-advances the normal queue after each track,
+  (b) when the whole queue is exhausted, auto-fills auto_queue with recommended tracks
+  (= "auto play randomly"). Covers manual .play, .queue, and playlist load paths.
+- NEW leave-when-alone via on_voice_state_update:
+  • channel empties (no non-bot members) → pause current track, notify, schedule leave.
+  • EMPTY_LEAVE_DELAY=60s later still empty → disconnect + message.
+  • a human returns before timeout → cancel leave, resume playback.
+  • module helpers _leave_tasks / _cancel_leave / _schedule_leave / _empty_leave_after.
+- Bot restarts clean (Prevent#9955, Lavalink ready, 18 cmds). NOTE: real voice playback /
+  track-end / empty-channel behavior can only be fully verified by the user in a live Discord
+  voice channel — automated tools can't join voice.

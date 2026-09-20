@@ -29,6 +29,7 @@ LAVALINK_URL = os.environ.get("LAVALINK_URL", "http://localhost:2333")
 LAVALINK_PASSWORD = os.environ.get("LAVALINK_PASSWORD", "pupu2026")
 PREFIX = "."
 INACTIVE_TIMEOUT = 180  # seconds
+EMPTY_LEAVE_DELAY = 60   # seconds to wait before leaving an empty voice channel
 
 EMBED_COLOR = 0x7C5CFF
 pg: asyncpg.Pool | None = None
@@ -197,11 +198,92 @@ class Pupu(commands.Bot):
         if player and player.playing:
             await player.skip(force=True)
 
+    async def on_voice_state_update(self, member, before, after):
+        # Leave-when-alone: pause when the channel empties, resume when someone returns,
+        # and disconnect after EMPTY_LEAVE_DELAY if still empty.
+        if member.id == self.user.id:
+            if after.channel is None:
+                _cancel_leave(member.guild.id)
+            return
+        player: wavelink.Player = member.guild.voice_client
+        if not player or not player.connected or player.channel is None:
+            return
+        humans = [m for m in player.channel.members if not m.bot]
+        if not humans:
+            if player.playing and not player.paused:
+                try:
+                    await player.pause(True)
+                except Exception:
+                    pass
+            player._empty_paused = True
+            home = getattr(player, "home", None)
+            if home and not getattr(player, "_empty_notified", False):
+                player._empty_notified = True
+                try:
+                    await home.send(embed=emb(
+                        "Everyone left the channel — I paused the music and will leave soon. 👋"))
+                except Exception:
+                    pass
+            _schedule_leave(player)
+        else:
+            _cancel_leave(member.guild.id)
+            player._empty_notified = False
+            if getattr(player, "_empty_paused", False):
+                player._empty_paused = False
+                if player.paused:
+                    try:
+                        await player.pause(False)
+                    except Exception:
+                        pass
+                home = getattr(player, "home", None)
+                if home:
+                    try:
+                        await home.send(embed=emb("Welcome back — resuming the music. ▶️"))
+                    except Exception:
+                        pass
+
 
 bot = Pupu()
 
 # guild_id -> wavelink.Player, for recovering players when events arrive with player=None
 _PLAYERS: dict[int, wavelink.Player] = {}
+
+# guild_id -> pending "leave empty channel" task
+_leave_tasks: dict[int, asyncio.Task] = {}
+
+
+def _cancel_leave(guild_id: int) -> None:
+    t = _leave_tasks.pop(guild_id, None)
+    if t and not t.done():
+        t.cancel()
+
+
+def _schedule_leave(player: wavelink.Player) -> None:
+    gid = player.guild.id
+    _cancel_leave(gid)
+    _leave_tasks[gid] = asyncio.create_task(_empty_leave_after(player, EMPTY_LEAVE_DELAY))
+
+
+async def _empty_leave_after(player: wavelink.Player, delay: int) -> None:
+    try:
+        await asyncio.sleep(delay)
+    except asyncio.CancelledError:
+        return
+    channel = getattr(player, "channel", None)
+    if channel and any(not m.bot for m in channel.members):
+        return  # someone returned in the meantime
+    home = getattr(player, "home", None)
+    if home:
+        try:
+            await home.send(embed=emb("Left the channel — nobody was listening. 💤"))
+        except Exception:
+            pass
+    try:
+        await player.disconnect()
+    except Exception:
+        pass
+    _PLAYERS.pop(player.guild.id, None)
+    _leave_tasks.pop(player.guild.id, None)
 
 
 def mark_playing(player, track):
@@ -230,6 +312,7 @@ async def revive_player(player):
         p2 = await ch.connect(cls=wavelink.Player, self_deaf=True)
         p2.home = getattr(player, "home", None)
         p2.inactive_timeout = INACTIVE_TIMEOUT
+        p2.autoplay = wavelink.AutoPlayMode.enabled
         p2._fallback_count = getattr(player, "_fallback_count", 0)
         _PLAYERS[ch.guild.id] = p2
         logger.info("revived player for guild %s", ch.guild.id)
@@ -261,6 +344,7 @@ async def ensure_player(ctx) -> wavelink.Player | None:
     player = await ctx.author.voice.channel.connect(cls=wavelink.Player, self_deaf=True)
     player.home = ctx.channel
     player.inactive_timeout = INACTIVE_TIMEOUT
+    player.autoplay = wavelink.AutoPlayMode.enabled
     return player
 
 
