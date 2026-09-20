@@ -89,24 +89,26 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
 - "Lavalink" hidden from all user-facing surfaces (bot embeds, status page, admin UI);
   internals (env names, logs, README) unchanged by design
 
-## YouTube datacenter-IP fix — FINAL (2026-09-20, OAuth)
+## YouTube datacenter-IP fix — FINAL (2026-09-20, OAuth + snapshot plugin)
 - Root cause chain: datacenter IP → YouTube bot-check (requires login / SABR-only formats);
-  poToken CONFLICTS with OAuth (TVHTML5 "The page needs to be reloaded"); wavelink destroys the
-  voice player after a failed load (events arrive player=None) killing fallback playback;
-  fallback searched SoundCloud with the full decorated title → zero results.
-- FINAL working config: OAuth-only (`plugins.youtube.oauth.enabled: true` + refreshToken from
-  the user's device-code authorization of a burner Google account; NO pot: block),
-  clients [TV, IOS, MUSIC, WEB, WEBEMBEDDED, ANDROID_VR] ("TV" resolves to TVHTML5, the
-  OAuth-capable client), remoteCipher → self-hosted yt-cipher on :8002 (supervisor `ytcipher`,
-  Deno, API_TOKEN pupu-cipher-2026, OVERRIDE_PLAYER_VARIANT=IAS).
-- Bot resilience: _PLAYERS registry + mark_playing + player_alive() + revive_player()
-  (reconnects destroyed voice players before retrying), clean_query() strips "| ..."/"(...)"/
-  quality words, 2-step fallback chain: cleaned YouTube retry → cleaned SoundCloud.
-  ensure_player() reconnects silently-dead players.
-- Verified iteration_7.json (100%): exact reported song plays via fallback (via=soundcloud),
-  general YouTube plays directly (via=youtube). If YouTube ever regresses: check oauth refresh
-  in lavalink log; if "page needs to be reloaded" recurs, sign into youtube.com once as the
-  burner account (creates its YouTube channel).
+  poToken CONFLICTS with OAuth (TVHTML5 "The page needs to be reloaded"); plugin 1.18.2's TV
+  User-Agent is blocked by YouTube (fixed upstream PR #82, only in SNAPSHOT builds);
+  wavelink's inactive_channel_tokens (default 3) fired in the empty DIAG channel and my
+  on_wavelink_inactive_player disconnected mid-fallback (players=0, player=None events).
+- FINAL working stack:
+  • youtube-plugin SNAPSHOT 2be8e542 (PlayStation UA fix) — lavalink/plugins/youtube-plugin-snapshot.jar
+    (backup of 1.18.2 kept at lavalink/youtube-plugin-1.18.2.jar.bak; Dockerfile uses the snapshot URL)
+  • OAuth-only: plugins.youtube.oauth.enabled + refreshToken (user's burner Google account,
+    device flow). NO pot: block (conflicts with OAuth).
+  • clients [TV, MUSIC, WEB, WEBEMBEDDED, ANDROID_VR, IOS] + clientOptions: TV playback-only
+    (TVHTML5 cannot search), MUSIC/WEB searching enabled.
+  • remoteCipher → self-hosted yt-cipher :8002 (supervisor `ytcipher`, Deno,
+    API_TOKEN pupu-cipher-2026, OVERRIDE_PLAYER_VARIANT=IAS).
+- Bot resilience: _PLAYERS registry + mark_playing + revive_player() (reconnect destroyed
+  players), clean_query() 2-step fallback (cleaned YT → cleaned SC), ensure_player()
+  reconnects dead players, diag sets inactive_channel_tokens=None (empty-channel artifact).
+- Verified: exact reported song plays via=youtube directly (DIAG CUSTOM OK), Rick Astley OK.
+  iteration_7 (100%) pre-snapshot; final DIAG 10:24 all 4 probes OK incl. direct YouTube.
 
 ## Notes / requirements outside build
 - Discord Developer Portal: Message Content Intent must be ON (enabled in code intents; also toggle in portal)

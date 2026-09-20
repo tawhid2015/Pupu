@@ -1085,6 +1085,7 @@ async def run_diagnostic():
                 logger.info("DIAG: connect failed in %s/%s: %s", guild.name, ch.name, e)
                 continue
             player.inactive_timeout = 9999
+            player.inactive_channel_tokens = None  # diag runs in an empty channel
             await asyncio.sleep(2)
             sid = wavelink.Pool.get_node().session_id
 

@@ -51,11 +51,28 @@ plugins:
       refreshToken: "1//0471mvG7nh6JiCgYIARAAGAQSNwF-L9IrzdUmBpt4EiG1BiebJBwgGBgTRFUwpv1q2VfhQrH1dYcjcIVZtiov5UllznP5ZFVdbgQ"
     clients:
       - TV
-      - IOS
       - MUSIC
       - WEB
       - WEBEMBEDDED
       - ANDROID_VR
+      - IOS
+    # TV (OAuth) can't search/load playlists — reserve it for playback only.
+    clientOptions:
+      TV:
+        playback: true
+        videoLoading: true
+        playlistLoading: false
+        searching: false
+      MUSIC:
+        playback: true
+        videoLoading: true
+        playlistLoading: true
+        searching: true
+      WEB:
+        playback: true
+        videoLoading: true
+        playlistLoading: true
+        searching: true
     # Remote cipher server (decrypts YouTube SABR signatures). Self-hosted yt-cipher.
     remoteCipher:
       url: "http://localhost:8002"
