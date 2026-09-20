@@ -12,7 +12,20 @@ prefix commands and `/` slash commands must work (e.g. `.help` and `/help`).
 
 ## Config (backend/.env)
 - DISCORD_BOT_TOKEN, LAVALINK_URL, LAVALINK_PASSWORD (secrets, not hardcoded)
-- Lavalink: https://lavalink-2026-production-adb0.up.railway.app (v4.2.2, YouTube + SoundCloud)
+- Lavalink: SELF-HOSTED locally since 2026-09-20 — Lavalink 4.2.2 at http://localhost:2333
+  (supervisor program `lavalink`, /app/lavalink/, youtube-plugin 1.18.2 in plugins/)
+- Old Railway Lavalink (lavalink-2026-production-adb0.up.railway.app) abandoned:
+  its youtube-plugin 1.16.0 was broken by YouTube ("must find sig function")
+
+## Bug fix (2026-09-20): bot joined voice but no sound
+Root causes: (1) Railway Lavalink's outdated youtube-plugin 1.16.0 broke ALL YouTube streams;
+(2) wavelink 3.5.2 `Playable.search` double-prefixed explicit prefixes (ytmsearch:scsearch:...)
+so scsearch returned nothing; (3) track-exception handler crashed on track.source_name.
+Fixes: self-hosted Lavalink + youtube-plugin 1.18.2; `search_tracks()` helper with proper
+`source=` param (YouTube default, SoundCloud for fallback); fixed exception handler using
+`track.source` + TypedDict access. Verified via DIAG harness (touch /tmp/pupu_diag.flag +
+restart → auto-joins empty VC, plays HTTP/SoundCloud/YouTube, logs pos): all three OK,
+pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
 
 ## Implemented (2026-09-20)
 - Hybrid commands (prefix `.` + slash): play, pause, resume, skip, stop, nowplaying, seek,
