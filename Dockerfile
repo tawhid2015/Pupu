@@ -66,9 +66,10 @@ RUN mkdir -p /app/lavalink/plugins /app/lavalink/yt-cipher /var/log/supervisor /
 RUN curl -fsSL -o /app/lavalink/Lavalink.jar https://github.com/lavalink-devs/Lavalink/releases/download/4.2.2/Lavalink.jar
 RUN curl -fsSL -o /app/lavalink/plugins/youtube-plugin.jar https://maven.lavalink.dev/snapshots/dev/lavalink/youtube/youtube-plugin/2be8e542d3f6f178e048dca565892684c2e40177/youtube-plugin-2be8e542d3f6f178e048dca565892684c2e40177.jar
 
-# Install Python dependencies
-COPY backend/requirements.txt /app/backend/requirements.txt
-RUN pip install --no-cache-dir -r /app/backend/requirements.txt
+# Install Python dependencies (lean public-PyPI set for the image;
+# requirements.txt stays for the dev pod and includes Emergent-internal pkgs)
+COPY backend/requirements.docker.txt /app/backend/requirements.docker.txt
+RUN pip install --no-cache-dir -r /app/backend/requirements.docker.txt
 
 # Copy built frontend assets
 COPY --from=frontend-builder /app/frontend/build /app/frontend/build

@@ -192,3 +192,16 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
   (downloaded at build), backend/.env (secrets — correctly NOT in image; env via Railway vars).
 - No docker daemon in this pod → could not run a local image build; Dockerfile is static-verified.
   User must Save to GitHub → Railway Redeploy.
+
+## 2026-09-20 — Railway build failure #2 fixed (emergentintegrations)
+- Build failed at pip install: `No matching distribution found for emergentintegrations==0.2.0`
+  — it's an Emergent-internal package on a private CloudFront index, unreachable from Railway.
+- Audited backend imports: emergentintegrations, boto3, requests-oauthlib, passlib, jose,
+  pandas, numpy, typer, jq, cryptography, requests all UNUSED in code; aiohttp used.
+- NEW backend/requirements.docker.txt: lean 13-package public-PyPI set (fastapi, uvicorn,
+  pydantic, email-validator, dotenv, pyjwt, bcrypt, discord.py 2.7.1, wavelink 3.5.2, PyNaCl,
+  asyncpg 0.30.0, aiohttp, tzdata). Dockerfile now installs from it; requirements.txt untouched
+  (pod still uses it).
+- Verified in clean venv: installs OK + all module imports resolve.
+- Log review: cipher-builder (ejs clone+patch) completed all 7 steps; yarn [err] line was just
+  parallel-stage cancellation after pip failed — no yarn problem.
