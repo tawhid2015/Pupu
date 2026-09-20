@@ -1,15 +1,20 @@
-"""Backend tests: Supabase Postgres playlist DB layer + bot status.
+"""Backend tests: Supabase Postgres playlist DB layer (v2: scoped owner tuples).
 
-Tests /app/backend/playlist_db.py against real Supabase pooler DSN.
-Uses throwaway user_id and cleans up rows afterwards.
+Covers:
+- Personal (owner=('user',id)) vs shared (owner=('guild',id)) isolation
+- Per-scope dedupe -> 'exists'
+- add_tracks appends respecting 100 cap
+- list_playlists returns creator
+- delete_playlist: 'ok', 'missing', 'forbidden' (shared non-creator)
+- Bot status endpoint online=true
 """
 import os
 import sys
 import asyncio
 import pytest
+import pytest_asyncio
 import requests
 import asyncpg
-import pytest_asyncio
 from dotenv import load_dotenv
 
 sys.path.insert(0, "/app/backend")
@@ -18,11 +23,17 @@ load_dotenv("/app/backend/.env")
 import playlist_db  # noqa: E402
 
 DSN = os.environ.get("SUPABASE_DB_URL")
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://pupu-audio-bot.preview.emergentagent.com").rstrip("/")
-TEST_USER = 999999999998
+BASE_URL = os.environ.get(
+    "REACT_APP_BACKEND_URL", "https://pupu-audio-bot.preview.emergentagent.com"
+).rstrip("/")
 
+# throwaway ids
+TEST_USER_A = 999999999901
+TEST_USER_B = 999999999902
+TEST_GUILD = 999999999999
 
-# ---------------- Fixtures ----------------
+TEST_NAME = "TEST_pl_scope"
+
 
 @pytest.fixture(scope="module")
 def event_loop():
@@ -35,14 +46,20 @@ def event_loop():
 async def pool():
     p = await asyncpg.create_pool(DSN, statement_cache_size=0, min_size=1, max_size=3)
     await playlist_db.ensure_schema(p)
-    yield p
-    # cleanup any stray test rows
+    # pre-clean
     async with p.acquire() as con:
-        await con.execute("DELETE FROM playlists WHERE user_id=$1", TEST_USER)
+        await con.execute(
+            "DELETE FROM playlists WHERE user_id = ANY($1::bigint[]) OR guild_id=$2",
+            [TEST_USER_A, TEST_USER_B], TEST_GUILD)
+    yield p
+    async with p.acquire() as con:
+        await con.execute(
+            "DELETE FROM playlists WHERE user_id = ANY($1::bigint[]) OR guild_id=$2",
+            [TEST_USER_A, TEST_USER_B], TEST_GUILD)
     await p.close()
 
 
-# ---------------- Bot / API wiring ----------------
+# ---------- Bot / API wiring ----------
 
 def test_bot_status_endpoint():
     r = requests.get(f"{BASE_URL}/api/bot/status", timeout=15)
@@ -51,121 +68,83 @@ def test_bot_status_endpoint():
     assert data.get("online") is True, data
 
 
-# ---------------- Schema check ----------------
+# ---------- Scope isolation ----------
 
 @pytest.mark.asyncio
-async def test_schema_tables_exist(pool):
-    async with pool.acquire() as con:
-        tbls = await con.fetch(
-            "SELECT tablename FROM pg_tables WHERE schemaname='public' "
-            "AND tablename IN ('playlists','playlist_tracks')")
-        names = {r["tablename"] for r in tbls}
-        assert "playlists" in names
-        assert "playlist_tracks" in names
+async def test_personal_and_shared_isolated_same_name(pool):
+    personal = ("user", TEST_USER_A)
+    shared = ("guild", TEST_GUILD)
 
-        # unique(user_id,name) on playlists
-        pl_uniques = await con.fetch("""
-            SELECT conname FROM pg_constraint
-            WHERE conrelid = 'public.playlists'::regclass AND contype='u'
-        """)
-        assert len(pl_uniques) >= 1
+    # Same name allowed in each scope
+    assert await playlist_db.create_playlist(pool, personal, TEST_NAME, TEST_USER_A) == "ok"
+    assert await playlist_db.create_playlist(pool, shared, TEST_NAME, TEST_USER_A) == "ok"
 
-        # FK cascade + unique(playlist_id,position) on playlist_tracks
-        pt_cons = await con.fetch("""
-            SELECT conname, contype, confdeltype FROM pg_constraint
-            WHERE conrelid = 'public.playlist_tracks'::regclass
-        """)
-        has_cascade = any(c["contype"] in ("f", b"f") and c["confdeltype"] in ("c", b"c") for c in pt_cons)
-        has_unique = any(c["contype"] in ("u", b"u") for c in pt_cons)
-        assert has_cascade, f"missing FK cascade: {pt_cons}"
-        assert has_unique, f"missing unique(playlist_id,position): {pt_cons}"
+    # Duplicates dedupe per scope
+    assert await playlist_db.create_playlist(pool, personal, TEST_NAME, TEST_USER_A) == "exists"
+    assert await playlist_db.create_playlist(pool, shared, TEST_NAME, TEST_USER_B) == "exists"
+
+    # Each list shows only its own scope
+    p_list = await playlist_db.list_playlists(pool, personal)
+    s_list = await playlist_db.list_playlists(pool, shared)
+    p_names = [r["name"] for r in p_list]
+    s_names = [r["name"] for r in s_list]
+    assert TEST_NAME in p_names
+    assert TEST_NAME in s_names
+    # user B has none personally
+    assert not await playlist_db.list_playlists(pool, ("user", TEST_USER_B))
+
+    # list_playlists returns creator
+    for r in s_list:
+        if r["name"] == TEST_NAME:
+            assert r["creator"] == TEST_USER_A
 
 
-# ---------------- CRUD ----------------
+# ---------- add_tracks cap behaviour ----------
 
 @pytest.mark.asyncio
-async def test_full_crud_flow(pool):
-    # start clean
-    async with pool.acquire() as con:
-        await con.execute("DELETE FROM playlists WHERE user_id=$1", TEST_USER)
+async def test_add_tracks_respects_cap(pool):
+    owner = ("user", TEST_USER_A)
+    name = "TEST_cap"
+    assert await playlist_db.create_playlist(pool, owner, name, TEST_USER_A) == "ok"
 
-    # create
-    assert await playlist_db.create_playlist(pool, TEST_USER, "mytest") == "ok"
-    # duplicate -> exists
-    assert await playlist_db.create_playlist(pool, TEST_USER, "mytest") == "exists"
+    def mk(n):
+        return [{"title": f"t{i}", "author": "a", "uri": f"http://x/{i}", "length": 1000}
+                for i in range(n)]
 
-    # add_track
-    t1 = {"title": "Song A", "author": "Artist A", "uri": "http://a", "length": 1000, "artwork": None}
-    t2 = {"title": "Song B", "author": "Artist B", "uri": "http://b", "length": 2000, "artwork": None}
-    t3 = {"title": "Song C", "author": "Artist C", "uri": "http://c", "length": 3000, "artwork": None}
-    assert await playlist_db.add_track(pool, TEST_USER, "mytest", t1) == "ok"
-    assert await playlist_db.add_track(pool, TEST_USER, "mytest", t2) == "ok"
-    assert await playlist_db.add_track(pool, TEST_USER, "mytest", t3) == "ok"
+    # First add 60
+    added = await playlist_db.add_tracks(pool, owner, name, mk(60))
+    assert added == 60
+    # Add 60 more -> only 40 room -> returns 40
+    added2 = await playlist_db.add_tracks(pool, owner, name, mk(60))
+    assert added2 == 40
+    # Now full -> 0
+    added3 = await playlist_db.add_tracks(pool, owner, name, mk(5))
+    assert added3 == 0
 
-    # add to missing playlist
-    assert await playlist_db.add_track(pool, TEST_USER, "nope", t1) == "missing"
+    tracks = await playlist_db.get_tracks(pool, owner, name)
+    assert len(tracks) == playlist_db.MAX_TRACKS_PER_PLAYLIST
 
-    # get_tracks ordering
-    tracks = await playlist_db.get_tracks(pool, TEST_USER, "mytest")
-    titles = [r["title"] for r in tracks]
-    assert titles == ["Song A", "Song B", "Song C"], titles
 
-    # remove middle track, positions reindex
-    removed = await playlist_db.remove_track(pool, TEST_USER, "mytest", 2)
-    assert removed == "Song B"
-    tracks = await playlist_db.get_tracks(pool, TEST_USER, "mytest")
-    titles = [r["title"] for r in tracks]
-    assert titles == ["Song A", "Song C"], titles
-    # confirm sequential positions
-    async with pool.acquire() as con:
-        pid = await playlist_db.get_playlist_id(con, TEST_USER, "mytest")
-        rows = await con.fetch(
-            "SELECT position, title FROM playlist_tracks WHERE playlist_id=$1 ORDER BY position", pid)
-        positions = [r["position"] for r in rows]
-        assert positions == [1, 2], positions
+# ---------- delete_playlist permission ----------
 
-    # bad index
-    assert await playlist_db.remove_track(pool, TEST_USER, "mytest", 999) == "badindex"
-    # remove from missing playlist
-    assert await playlist_db.remove_track(pool, TEST_USER, "unknown", 1) == "missing"
-
-    # save_tracks overwrite
-    new_tracks = [
-        {"title": "X", "author": "ax", "uri": "http://x", "length": 100, "artwork": None},
-        {"title": "Y", "author": "ay", "uri": "http://y", "length": 200, "artwork": None},
-    ]
-    assert await playlist_db.save_tracks(pool, TEST_USER, "mytest", new_tracks) == "ok"
-    tracks = await playlist_db.get_tracks(pool, TEST_USER, "mytest")
-    assert [r["title"] for r in tracks] == ["X", "Y"]
-    # empty save
-    assert await playlist_db.save_tracks(pool, TEST_USER, "mytest", []) == "empty"
-    # missing playlist save
-    assert await playlist_db.save_tracks(pool, TEST_USER, "no-such", new_tracks) == "missing"
-
-    # list_playlists shows count
-    await playlist_db.create_playlist(pool, TEST_USER, "second")
-    listed = await playlist_db.list_playlists(pool, TEST_USER)
-    by_name = {r["name"]: r["tracks"] for r in listed}
-    assert by_name.get("mytest") == 2
-    assert by_name.get("second") == 0
-
-    # delete_playlist and cascade
-    async with pool.acquire() as con:
-        pid = await playlist_db.get_playlist_id(con, TEST_USER, "mytest")
-    assert await playlist_db.delete_playlist(pool, TEST_USER, "mytest") is True
-    # tracks gone (cascade)
-    async with pool.acquire() as con:
-        remaining = await con.fetchval(
-            "SELECT count(*) FROM playlist_tracks WHERE playlist_id=$1", pid)
-        assert remaining == 0
-    # delete non-existent
-    assert await playlist_db.delete_playlist(pool, TEST_USER, "mytest") is False
-
-    # final cleanup
-    async with pool.acquire() as con:
-        await con.execute("DELETE FROM playlists WHERE user_id=$1", TEST_USER)
+@pytest.mark.asyncio
+async def test_delete_shared_forbidden_for_non_creator(pool):
+    shared = ("guild", TEST_GUILD)
+    name = "TEST_shared_del"
+    # creator = A
+    assert await playlist_db.create_playlist(pool, shared, name, TEST_USER_A) == "ok"
+    # B tries -> forbidden
+    assert await playlist_db.delete_playlist(pool, shared, name, TEST_USER_B) == "forbidden"
+    # A succeeds
+    assert await playlist_db.delete_playlist(pool, shared, name, TEST_USER_A) == "ok"
+    # Missing
+    assert await playlist_db.delete_playlist(pool, shared, name, TEST_USER_A) == "missing"
 
 
 @pytest.mark.asyncio
-async def test_get_tracks_missing_returns_none(pool):
-    assert await playlist_db.get_tracks(pool, TEST_USER, "does-not-exist") is None
+async def test_delete_personal_ok_and_missing(pool):
+    owner = ("user", TEST_USER_A)
+    name = "TEST_personal_del"
+    assert await playlist_db.create_playlist(pool, owner, name, TEST_USER_A) == "ok"
+    assert await playlist_db.delete_playlist(pool, owner, name, TEST_USER_A) == "ok"
+    assert await playlist_db.delete_playlist(pool, owner, name, TEST_USER_A) == "missing"

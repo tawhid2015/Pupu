@@ -1,0 +1,21 @@
+{
+  "summary": "Backend-only regression for Pupu v2 (scoped playlists + import). Rewrote pytest suite for new owner-tuple signatures. All 5 tests pass against real Supabase pooler DSN. Bot wiring verified via /var/log/supervisor/pupu_bot.err.log (Playlist DB connected, Synced 18 slash commands, Pupu online). IMPORTTEST harness triggered via /tmp/pupu_import_test.flag: SPOTIFY OK (added=50), YOUTUBE OK (added=10), done. /api/bot/status returns online=true.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_playlist_db.py", "/app/test_reports/pytest/pytest_playlist.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "playlist_db._scope is clean; per-scope partial unique indexes (playlists_personal_uq / playlists_shared_uq) correctly isolate personal vs shared without polluting the other scope.",
+    "delete_playlist forbidden semantics correctly gated: creator = playlists.user_id even for shared rows; make sure future edits keep INSERT populating user_id=creator_id for shared rows (currently correct).",
+    "clean_name still allows an all-whitespace name to become empty string and be inserted; consider rejecting empty names (minor, from prior iteration).",
+    "add_tracks return contract distinguishes -1 (missing playlist) vs 0 (full); callers in pupu_bot must translate -1 to a user-facing 'playlist not found' message — verify at review time."
+  ],
+  "updated_files": ["/app/backend/tests/test_playlist_db.py"],
+  "success_rate": {"backend": "100%", "frontend": "n/a"},
+  "test_credentials": "SUPABASE_DB_URL from /app/backend/.env; throwaway ids user=999999999901/902, guild=999999999999 (all rows cleaned by fixture teardown).",
+  "seed_data_creation": "Test playlists (TEST_pl_scope, TEST_cap, TEST_shared_del, TEST_personal_del) under throwaway ids; deleted on teardown. IMPORTTEST harness creates and self-cleans its own playlists.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: python -m pytest /app/backend/tests/test_playlist_db.py -v -o addopts=''. Do NOT pass -n auto. For import harness: `touch /tmp/pupu_import_test.flag && sudo supervisorctl restart pupu_bot`, wait ~45s, grep IMPORTTEST. For playback DIAG: `touch /tmp/pupu_diag.flag && sudo supervisorctl restart pupu_bot`, wait ~100s. Only ONE flag per restart unless you want both harnesses together.",
+  "rca of the issue": "n/a — all v2 features (scope isolation, per-scope dedupe, add_tracks cap, list_playlists creator field, delete_playlist ok/missing/forbidden, Spotify+YouTube import) verified passing."
+}

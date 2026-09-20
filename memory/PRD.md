@@ -44,6 +44,18 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
   load (re-resolves by URI, falls back to title search), view, remove, delete, list
 - Tests: /app/backend/tests/test_playlist_db.py, report iteration_3.json (100%)
 
+## Playlist v2 (2026-09-20): shuffle-load, server playlists, URL import
+- Scoped playlists: personal owner=("user",id) and shared owner=("guild",id), isolated via
+  partial unique indexes (playlists_personal_uq / playlists_shared_uq)
+- Server-shared (collaborative): group `.serverplaylist`/`.spl` — anyone in the guild can
+  create/add/load; only the creator can delete
+- Shuffle-load: `.pl load <name> shuffle` (boolean) randomises order via random.shuffle
+- Import: `.pl import <name> <url>` — YouTube playlist URLs load natively; public Spotify
+  playlist/album/track URLs are scraped via the embed page (__NEXT_DATA__, NO API key) and each
+  track resolved to a playable YouTube track (concurrency 8)
+- 18 slash commands. Verified: iteration_4.json 100% (scope isolation, dedupe, cap, creator-only
+  delete, IMPORTTEST SPOTIFY 50 + YOUTUBE 10)
+
 ## Notes / requirements outside build
 - Discord Developer Portal: Message Content Intent must be ON (enabled in code intents; also toggle in portal)
 - Bot must be invited with Connect + Speak voice permissions
