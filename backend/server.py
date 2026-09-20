@@ -74,13 +74,14 @@ async def bot_status():
         return {"online": False, "name": "Pupu", "guilds": 0, "users": 0,
                 "active_players": 0, "players": [], "updated_at": None}
     # Consider offline if the bot hasn't pushed status in the last 40s
-    try:
-        updated = datetime.fromisoformat(doc.get("updated_at"))
-        stale = (datetime.now(timezone.utc) - updated).total_seconds() > 40
-        if stale:
-            doc["online"] = False
-    except Exception:
-        pass
+    updated_at = doc.get("updated_at")
+    if isinstance(updated_at, str):
+        try:
+            updated = datetime.fromisoformat(updated_at)
+            if (datetime.now(timezone.utc) - updated).total_seconds() > 40:
+                doc["online"] = False
+        except ValueError:
+            pass
     return doc
 
 # Include the router in the main app
