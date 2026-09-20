@@ -95,6 +95,8 @@ class Pupu(commands.Bot):
         logger.info("Pupu online as %s (%d guilds)", self.user, len(self.guilds))
         if not push_status.is_running():
             push_status.start()
+        if not poll_commands.is_running():
+            poll_commands.start()
 
     async def on_wavelink_node_ready(self, payload: wavelink.NodeReadyEventPayload):
         logger.info("Lavalink node ready: %s", payload.node.uri)
@@ -822,21 +824,62 @@ async def arg_error(ctx, error):
 
 
 # ---------- status writer for the web page ----------
-@tasks.loop(seconds=10)
+def _player_for(guild):
+    vc = guild.voice_client
+    return vc if isinstance(vc, wavelink.Player) else None
+
+
+@tasks.loop(seconds=5)
 async def push_status():
     players = []
-    for vc in bot.voice_clients:
-        if isinstance(vc, wavelink.Player) and vc.current:
-            players.append({
-                "guild": vc.guild.name if vc.guild else "?",
-                "title": vc.current.title,
-                "author": vc.current.author,
-                "uri": vc.current.uri,
-                "artwork": vc.current.artwork,
-                "paused": vc.paused,
-                "position": vc.position,
-                "length": vc.current.length,
-            })
+    servers = []
+    active_voice = 0
+    for g in bot.guilds:
+        p = _player_for(g)
+        entry = {
+            "id": str(g.id),
+            "name": g.name,
+            "icon": str(g.icon.url) if g.icon else None,
+            "members": g.member_count or 0,
+            "owner_id": str(g.owner_id) if g.owner_id else None,
+            "voice_connected": False,
+            "voice_channel": None,
+            "listeners": 0,
+            "playing": None,
+            "paused": False,
+            "volume": None,
+            "queue_len": 0,
+            "loop": None,
+        }
+        if p and p.connected:
+            active_voice += 1
+            ch = p.channel
+            entry["voice_connected"] = True
+            entry["voice_channel"] = ch.name if ch else None
+            entry["listeners"] = sum(1 for m in ch.members if not m.bot) if ch else 0
+            entry["volume"] = p.volume
+            entry["paused"] = p.paused
+            entry["queue_len"] = len(p.queue)
+            try:
+                entry["loop"] = p.queue.mode.name
+            except Exception:
+                pass
+            if p.current:
+                t = p.current
+                entry["playing"] = {
+                    "title": t.title, "author": t.author, "uri": t.uri,
+                    "artwork": t.artwork, "position": p.position, "length": t.length,
+                    "source": t.source,
+                }
+                players.append({
+                    "guild": g.name, "guild_id": str(g.id),
+                    "title": t.title, "author": t.author, "uri": t.uri,
+                    "artwork": t.artwork, "paused": p.paused,
+                    "position": p.position, "length": t.length,
+                })
+        servers.append(entry)
+
+    servers.sort(key=lambda s: (not s["voice_connected"], -s["members"]))
     session_id = None
     try:
         session_id = wavelink.Pool.get_node().session_id
@@ -850,7 +893,9 @@ async def push_status():
         "guilds": len(bot.guilds),
         "users": sum(g.member_count or 0 for g in bot.guilds),
         "active_players": len(players),
+        "active_voice": active_voice,
         "players": players,
+        "servers": servers,
         "latency_ms": round(bot.latency * 1000) if bot.latency else None,
         "session_id": session_id,
         "test_guild_id": str(bot.guilds[0].id) if bot.guilds else None,
@@ -860,6 +905,49 @@ async def push_status():
         await db.bot_status.replace_one({"_id": "pupu"}, doc, upsert=True)
     except Exception as e:
         logger.error("status write failed: %s", e)
+
+
+# ---------- admin control command channel ----------
+@tasks.loop(seconds=2)
+async def poll_commands():
+    try:
+        cmds = await db.bot_commands.find({"status": "pending"}).to_list(20)
+    except Exception:
+        return
+    for c in cmds:
+        action = c.get("action")
+        gid = int(c.get("guild_id", 0))
+        value = c.get("value")
+        result = "ok"
+        try:
+            guild = bot.get_guild(gid)
+            p = _player_for(guild) if guild else None
+            if action in ("pause", "resume", "skip", "stop", "leave", "volume") and not p:
+                result = "no_player"
+            elif action == "pause":
+                await p.pause(True)
+            elif action == "resume":
+                await p.pause(False)
+            elif action == "skip":
+                await p.skip(force=True)
+            elif action == "stop":
+                p.queue.clear()
+                await p.stop()
+            elif action == "leave":
+                await p.disconnect()
+            elif action == "volume":
+                await p.set_volume(max(0, min(100, int(value))))
+            else:
+                result = "unknown_action"
+        except Exception as e:
+            result = f"error: {e}"[:120]
+        try:
+            await db.bot_commands.update_one(
+                {"_id": c["_id"]},
+                {"$set": {"status": "done", "result": result,
+                          "done_at": datetime.now(timezone.utc).isoformat()}})
+        except Exception:
+            pass
 
 
 async def _rest_position(session_id: str, guild_id: int):

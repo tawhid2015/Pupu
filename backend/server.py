@@ -1,14 +1,16 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import uuid
+import jwt
+import bcrypt
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List
-import uuid
-from datetime import datetime, timezone
+from typing import List, Optional
+from datetime import datetime, timezone, timedelta
 
 
 ROOT_DIR = Path(__file__).parent
@@ -18,6 +20,12 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+
+# Admin auth config
+JWT_SECRET = os.environ['JWT_SECRET']
+JWT_ALG = "HS256"
+ADMIN_USERNAME = os.environ['ADMIN_USERNAME']
+ADMIN_PASSWORD_HASH = bcrypt.hashpw(os.environ['ADMIN_PASSWORD'].encode(), bcrypt.gensalt())
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -83,6 +91,129 @@ async def bot_status():
         except ValueError:
             pass
     return doc
+
+
+# ---------------- Admin auth + dashboard ----------------
+class AdminLogin(BaseModel):
+    username: str
+    password: str
+
+
+class ControlAction(BaseModel):
+    guild_id: str
+    action: str  # pause | resume | skip | stop | leave | volume
+    value: Optional[int] = None
+
+
+def create_admin_token() -> str:
+    payload = {"sub": ADMIN_USERNAME, "role": "admin",
+               "exp": datetime.now(timezone.utc) + timedelta(hours=12)}
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+
+
+async def require_admin(request: Request) -> str:
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else None
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Session expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    if payload.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return payload["sub"]
+
+
+async def _get_status_doc():
+    doc = await db.bot_status.find_one({"_id": "pupu"}, {"_id": 0}) or {}
+    updated_at = doc.get("updated_at")
+    if isinstance(updated_at, str):
+        try:
+            if (datetime.now(timezone.utc) - datetime.fromisoformat(updated_at)).total_seconds() > 40:
+                doc["online"] = False
+        except ValueError:
+            pass
+    return doc
+
+
+@api_router.post("/admin/login")
+async def admin_login(body: AdminLogin, request: Request):
+    ip = request.client.host if request.client else "?"
+    ident = f"{ip}:{body.username}"
+    rec = await db.login_attempts.find_one({"_id": ident})
+    now = datetime.now(timezone.utc)
+    if rec and rec.get("count", 0) >= 5:
+        locked_until = rec.get("locked_until")
+        if locked_until and datetime.fromisoformat(locked_until) > now:
+            raise HTTPException(status_code=429, detail="Too many attempts. Try again later.")
+    ok = (body.username == ADMIN_USERNAME and
+          bcrypt.checkpw(body.password.encode(), ADMIN_PASSWORD_HASH))
+    if not ok:
+        count = (rec.get("count", 0) if rec else 0) + 1
+        await db.login_attempts.update_one(
+            {"_id": ident},
+            {"$set": {"count": count,
+                      "locked_until": (now + timedelta(minutes=15)).isoformat() if count >= 5 else None}},
+            upsert=True)
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    await db.login_attempts.delete_one({"_id": ident})
+    return {"token": create_admin_token(), "username": ADMIN_USERNAME}
+
+
+@api_router.get("/admin/me")
+async def admin_me(admin: str = Depends(require_admin)):
+    return {"username": admin}
+
+
+@api_router.get("/admin/overview")
+async def admin_overview(admin: str = Depends(require_admin)):
+    doc = await _get_status_doc()
+    servers = doc.get("servers", [])
+    return {
+        "online": doc.get("online", False),
+        "name": doc.get("name", "Pupu"),
+        "avatar": doc.get("avatar"),
+        "guilds": doc.get("guilds", 0),
+        "users": doc.get("users", 0),
+        "active_voice": doc.get("active_voice", 0),
+        "active_players": doc.get("active_players", 0),
+        "latency_ms": doc.get("latency_ms"),
+        "updated_at": doc.get("updated_at"),
+        "players": doc.get("players", []),
+        "servers": servers,
+    }
+
+
+@api_router.get("/admin/servers/{guild_id}")
+async def admin_server_detail(guild_id: str, admin: str = Depends(require_admin)):
+    doc = await _get_status_doc()
+    for s in doc.get("servers", []):
+        if s.get("id") == guild_id:
+            return s
+    raise HTTPException(status_code=404, detail="Server not found")
+
+
+@api_router.post("/admin/control")
+async def admin_control(body: ControlAction, admin: str = Depends(require_admin)):
+    if body.action not in {"pause", "resume", "skip", "stop", "leave", "volume"}:
+        raise HTTPException(status_code=400, detail="Unknown action")
+    cmd_id = str(uuid.uuid4())
+    await db.bot_commands.insert_one({
+        "_id": cmd_id, "guild_id": body.guild_id, "action": body.action,
+        "value": body.value, "status": "pending",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    # brief wait for the bot poller (2s loop) to pick it up
+    import asyncio
+    for _ in range(15):
+        await asyncio.sleep(0.4)
+        rec = await db.bot_commands.find_one({"_id": cmd_id}, {"_id": 0, "status": 1, "result": 1})
+        if rec and rec.get("status") == "done":
+            return {"ok": rec.get("result") == "ok", "result": rec.get("result")}
+    return {"ok": False, "result": "timeout — bot may be offline"}
 
 # Include the router in the main app
 app.include_router(api_router)

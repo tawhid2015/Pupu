@@ -1,6 +1,10 @@
 import { useEffect, useState, useCallback } from "react";
 import "@/App.css";
 import axios from "axios";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import AdminLogin from "@/admin/AdminLogin";
+import AdminDashboard from "@/admin/AdminDashboard";
+import ProtectedRoute from "@/admin/ProtectedRoute";
 import {
   Activity, Radio, Server, Users, Gauge, Music4, Pause, Play,
   Terminal, Command, Disc3, Zap, ListMusic, Volume2, Repeat, Shuffle,
@@ -79,7 +83,7 @@ function NowPlaying({ p }) {
   );
 }
 
-function App() {
+function StatusPage() {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -188,6 +192,18 @@ function App() {
         <span><Shuffle size={13} /> <Repeat size={13} /> Pupu · powered by Lavalink v4 + Wavelink</span>
       </footer>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<StatusPage />} />
+        <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 
