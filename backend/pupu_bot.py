@@ -1093,6 +1093,7 @@ async def run_diagnostic():
                 if not tracks:
                     logger.info("DIAG: %s search returned nothing", label)
                     return
+                mark_playing(player, tracks[0])
                 await player.play(tracks[0], volume=20)
                 for _ in range(timeout // 2):
                     await asyncio.sleep(2)

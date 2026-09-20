@@ -44,18 +44,11 @@ plugins:
     allowSearch: true
     allowDirectVideoIds: true
     allowDirectPlaylistIds: true
-    # poToken + visitorData let the WEB/WEBEMBEDDED clients pass YouTube's bot-check on
-    # datacenter IPs. Refresh with /app/lavalink/refresh_potoken.py when playback fails.
-    pot:
-      token: "MsIEQreqEa2FRWhCiQNhaHWnalL2YxKl2zw21Takaf-N3ec35iLZkZX8VWebiNbWm6F6Ug0tlf6_P7ckmYeAuFrQ1sPgCRYYHQ9sMgl5MYkEbSfy8aQaFlGB0pFUbIDiYUSvfqgc_j2P0ijaSkh6gZUWIlmNzi1DbdBINW6gIWE6zfyuKdwe_0rw-76VD0xwVg9mSI1K1U0UWIqjPR7_asHmsEkoEAYNoTAlulznZLycG9-5Mn9kR9Fnt-Bys37stku-ur7hJvUC3Rv-lQn0EUDba_QojFTtozs625kCZVUKLaFUYunTHTQWV_jgT5n3gAAcWIywskJZ984tdeYA_XUpfme-FNiSP8Yyj_Bfm9lOltBLZrt8-aDlEeCKYkSo5bB41MFjeQ0Yzh0YYwNHXXtQaufspRdunnegHg_i0R8jw-1lPuPKQ2ac2lRoBdGI_3RMCf61kiPwYNEuEYTqOpBcU0bkgtiuRLkz1aW9Z3cYu7IkODRVSrdLjX8y2iuhYKaHZWDrnVVSXvgDn9jrYasm8-8Eww2KNxZFITkcKJsjVJ8dMOC9VPtcTGvaeVpInsst4Em8lRU4o5zlhvdV9KbzBbgiwSVwsJ5pu9_mL0GCnaJPP5XRy5sSnpnLB7J_y2MPwGlclC95LEa53peP6EO3eia-24IxpOnOqtFLBr12Rr6BlTrVIVEBWYN5Uo_UGopGIufpyvdwk5YGhXZvS-IUeExhEBRWgM1QzANVeeQEAFDzOH0kEs01m0E0-Fmpjn_oifI="
-      visitorData: "Cgtnc0wxbEJ6NFJGTSiox77VBmLfAgrcAjIxLllUPU54ZlNrZ2lDMVlHLWhkSHRYUFN6cTh3WG93aDY4TjlDVmNMTnNtY2RJRFZMUjhZX0lVakJOamFwZHRwZXZnOEtUZnJGRHNfMFVNR1VTeFYwYTN0X3I2ay1uTFF2RzI5VUQybHRQdXZ2VEVxYmozZHFEWTZXY29wLXgxSGctamllaW0ybDR6eFJvTG9sWmN6LUlEVHNXb2xKOTktY1p6Q2tFTC1uR1BleXMyREt1UWF4S2xKdnVubGRRMTdCdkdDcFdMR1BGQkpZWlFCNUk0dUtYLVNIMEFjUzRpNllkWFJINUMyV25QZWZqdUpjOGZRWEF2NVV1Q1pITHNoRjlWMW5GNlQxWHpRUUFlWG40V25UbVE0SFNWWllBaGJpSUIzNWZTMnZXaFBCdnNpSFV5VWt5XzdacHB4SzgyZjBWWnYzSFRJQjk5NHg3QWRTUnhNeGRzc2ZfZw%3D%3D"
-    # Clients that currently survive YouTube bot-checks; update when youtube-plugin releases
-    # OAuth: one-time device-code sign-in (burner Google account recommended).
-    # On Lavalink start, the log prints a verification URL + code. After authorizing,
-    # a refresh token is printed once — save it here as refreshToken for persistence.
+    # OAuth (device-code, burner Google account) is the primary YouTube auth.
+    # Do NOT combine with pot/poToken — they conflict ("The page needs to be reloaded").
     oauth:
       enabled: true
-      refreshToken: null
+      refreshToken: "1//0471mvG7nh6JiCgYIARAAGAQSNwF-L9IrzdUmBpt4EiG1BiebJBwgGBgTRFUwpv1q2VfhQrH1dYcjcIVZtiov5UllznP5ZFVdbgQ"
     clients:
       - TV
       - IOS
