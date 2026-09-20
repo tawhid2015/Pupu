@@ -14,9 +14,9 @@ import wavelink
 import asyncpg
 import aiohttp
 from dotenv import load_dotenv
-from motor.motor_asyncio import AsyncIOMotorClient
 
 import playlist_db
+import bot_db
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -31,8 +31,6 @@ PREFIX = "."
 INACTIVE_TIMEOUT = 180  # seconds
 
 EMBED_COLOR = 0x7C5CFF
-mongo = AsyncIOMotorClient(os.environ["MONGO_URL"])
-db = mongo[os.environ.get("DB_NAME", "pupu")]
 pg: asyncpg.Pool | None = None
 
 
@@ -92,6 +90,8 @@ class Pupu(commands.Bot):
                                                statement_cache_size=0)
                 await playlist_db.ensure_schema(pg)
                 logger.info("Playlist DB connected (Supabase Postgres)")
+                await bot_db.init_schema()
+                logger.info("Control DB connected (Supabase Postgres)")
             except Exception as e:
                 pg = None
                 logger.error("Playlist DB connection failed: %s", e)
@@ -968,7 +968,7 @@ async def push_status():
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
-        await db.bot_status.replace_one({"_id": "pupu"}, doc, upsert=True)
+        await bot_db.save_status(doc)
     except Exception as e:
         logger.error("status write failed: %s", e)
 
@@ -977,7 +977,7 @@ async def push_status():
 @tasks.loop(seconds=2)
 async def poll_commands():
     try:
-        cmds = await db.bot_commands.find({"status": "pending"}).to_list(20)
+        cmds = await bot_db.fetch_pending_commands()
     except Exception:
         return
     for c in cmds:
@@ -1008,10 +1008,7 @@ async def poll_commands():
         except Exception as e:
             result = f"error: {e}"[:120]
         try:
-            await db.bot_commands.update_one(
-                {"_id": c["_id"]},
-                {"$set": {"status": "done", "result": result,
-                          "done_at": datetime.now(timezone.utc).isoformat()}})
+            await bot_db.complete_command(c["id"], result)
         except Exception:
             pass
 

@@ -6,7 +6,7 @@
 (`.` prefix **and** `/` slash), per-user & collaborative server playlists on Supabase Postgres,
 Spotify/YouTube playlist import, and a private real-time admin web dashboard.
 
-`discord.py 2.7` · `Wavelink 3.5` · `Lavalink 4.2.2` · `FastAPI` · `React` · `MongoDB` · `Supabase Postgres`
+`discord.py 2.7` · `Wavelink 3.5` · `Lavalink 4.2.2` · `FastAPI` · `React` · `Supabase Postgres`
 
 </div>
 
@@ -40,8 +40,8 @@ Pupu is a Discord music bot (`Pupu#4710`) with three runtime pillars:
 | **Lavalink node** | Java · Lavalink 4.2.2 · youtube-plugin 1.18.2 | Audio search, stream resolution, voice streaming to Discord |
 | **Web layer** | FastAPI (Python) + React (CRA) | Public status page `/`, private admin dashboard `/admin`, admin API |
 
-Data stores: **MongoDB** (live bot status + admin command queue) and **Supabase Postgres**
-(user/server playlists). The bot plays music in **many servers simultaneously** — every guild
+Data store: **Supabase Postgres** only — playlists (`playlist_db.py`) plus live bot status,
+admin command queue and login rate-limiting (`bot_db.py`). The bot plays music in **many servers simultaneously** — every guild
 has its own fully independent player and voice connection.
 
 ---
@@ -60,12 +60,12 @@ has its own fully independent player and voice connection.
             │  • push_status()  every 5s ─────────┐               │
             │  • poll_commands() every 2s ◄───────┼───┐           │
             └───────┬─────────────────────────────┘   │           │
-                    │ REST + WebSocket                │ MongoDB   │ MongoDB
+                    │ REST + WebSocket                │ asyncpg   │ asyncpg
                     ▼                                 ▼           ▲
         ┌───────────────────────┐          ┌──────────────────────┴───┐
-        │   Lavalink v4 node    │          │          MongoDB          │
-        │   (localhost:2333)    │          │  bot_status  (live state) │
-        │   youtube-plugin 1.18 │          │  bot_commands (admin ops) │
+        │   Lavalink v4 node    │          │     Supabase Postgres     │
+        │   (localhost:2333)    │          │  bot_kv      (live state) │
+        │   youtube-plugin      │          │  bot_commands (admin ops) │
         └───────────────────────┘          └──────────▲───────────────┘
                     │                                  │ reads / writes
                     │ asyncpg                  ┌──────┴───────────┐
@@ -86,11 +86,12 @@ has its own fully independent player and voice connection.
 - **Bot ↔ Lavalink**: Wavelink opens a WebSocket (`/v4/websocket`) for real-time events
   (track start/end/exception, player position) and calls the REST API (`/v4/loadtracks`,
   `/v4/sessions/{id}/players/{guild}`) to search, play, pause, seek, set volume.
-- **Bot ↔ MongoDB**: `push_status()` writes one `bot_status` document every 5 s containing
+- **Bot ↔ Postgres**: `push_status()` upserts one `bot_kv` row every 5 s containing
   **every** guild's live state. `poll_commands()` reads pending rows from `bot_commands`
   every 2 s, executes them on the matching guild's player, and writes back a result.
-- **API ↔ MongoDB**: `/api/bot/status` serves the public page; `/api/admin/*` (JWT-protected)
+- **API ↔ Postgres**: `/api/bot/status` serves the public page; `/api/admin/*` (JWT-protected)
   serves the dashboard and enqueues control commands into `bot_commands`.
+  (Both go through `bot_db.py` → Supabase.)
 - **Bot ↔ Supabase**: `playlist_db.py` holds an asyncpg pool; all playlist commands run
   parameterized SQL. Schemas are created idempotently at startup (`ensure_schema`).
 - **Frontend ↔ API**: public status polls every 5 s; admin dashboard polls every 4 s with a
@@ -196,8 +197,8 @@ has its own fully independent player and voice connection.
 - The React dashboard polls `/api/admin/overview` every 4 s: stats (servers, members, voice
   count, playing count, latency) and the full server list with voice channel, listeners,
   now-playing + progress, volume, queue length, loop mode.
-- Controls (pause/resume/skip/stop/leave/volume) insert a pending row into MongoDB
-  `bot_commands`; the bot's 2 s poller executes it and the API waits (≤6 s) for the result.
+- Controls (pause/resume/skip/stop/leave/volume) insert a pending row into the Postgres
+  `bot_commands` table; the bot's 2 s poller executes it and the API waits (≤6 s) for the result.
 - `/admin` is guarded by `ProtectedRoute`; every API call sends `Authorization: Bearer …`;
   a 401 bounces the user back to login.
 
@@ -217,8 +218,6 @@ All backend config lives in **`backend/.env`** (never commit it — already giti
 | `DISCORD_BOT_TOKEN` | bot | Discord bot token (Developer Portal → Bot → Token) |
 | `LAVALINK_URL` | bot | Lavalink base URL. Local: `http://localhost:2333`. Railway: the node's public URL or private hostname |
 | `LAVALINK_PASSWORD` | bot + Lavalink | Shared secret. Must equal `lavalink.server.password` |
-| `MONGO_URL` | bot + API | MongoDB connection string |
-| `DB_NAME` | bot + API | Mongo database name |
 | `SUPABASE_DB_URL` | bot | Supabase **session pooler** DSN (see note below) |
 | `JWT_SECRET` | API | 64-char hex for signing admin JWTs |
 | `ADMIN_USERNAME` | API | dashboard login (default `pupu`) |
@@ -246,7 +245,7 @@ URL-encode special characters in the password (`@` → `%40`). asyncpg connects 
 
 ## 6. Local development
 
-Prerequisites: **Java 17+**, **Python 3.11+**, **Node 18+**, **MongoDB**.
+Prerequisites: **Java 17+**, **Python 3.11+**, **Node 18+**.
 
 ```bash
 # 1 ─ Lavalink (audio server, :2333)
@@ -278,14 +277,12 @@ Pupu now features a root multi-stage `Dockerfile` and `supervisord` configuratio
 #### Steps to Deploy:
 1. **Save to GitHub**: In Emergent, click **"Save to GitHub"** in the chat input bar to push this repo to `tawhid2015/Pupu`.
 2. **In Railway** (`railway.com/project/...`):
-   - Click **+ Create** → **Database** → **Add MongoDB** (1 click).
    - Click **+ Create** → **GitHub Repository** → select `tawhid2015/Pupu` (leave Root Directory as default `/`).
-3. **Set 3 Environment Variables** on the service:
+3. **Set 2 Environment Variables** on the service:
    | Variable | Value | Description |
    |---|---|---|
    | `DISCORD_BOT_TOKEN` | `<your_discord_bot_token>` | Bot token from Discord Developer Portal |
-   | `SUPABASE_DB_URL` | `<your_supabase_session_pooler_dsn>` | Supabase postgres connection string |
-   | `MONGO_URL` | `${{MongoDB.MONGO_URL}}` | Auto-referenced from Railway's MongoDB |
+   | `SUPABASE_DB_URL` | `<your_supabase_session_pooler_dsn>` | Supabase Postgres — stores playlists, bot status & admin commands |
 4. **Generate Public Domain**:
    - In the deployed service → **Settings** → **Networking** → click **Generate Domain**.
    - Open that domain in your browser to view your live **Public Status Page** and **Admin Dashboard** (`/admin`)!
@@ -314,12 +311,10 @@ bash deploy/railway-deploy.sh  # from the repo root
 | 4 | `pupu-api` | `/backend` | FastAPI (public, for dashboard) |
 | 5 | `pupu-web` | `/frontend` | static React (public) |
 
-Plus one **MongoDB** database (Railway plugin or Atlas).
 
 ### 7.1 Create the project & database
 1. Railway → **New Project → Deploy from GitHub repo** (select this repo).
-2. **+ New → Database → MongoDB** (or use MongoDB Atlas). Copy the connection string —
-   prefer the **private** one (`*.railway.internal`) for services in the same project.
+2. No database service needed — Supabase Postgres (external) stores everything.
 
 ### 7.2 Lavalink service
 1. **+ New → GitHub repo → same repo**, then **Settings → Root Directory = `lavalink`**.
@@ -341,8 +336,6 @@ Plus one **MongoDB** database (Railway plugin or Atlas).
    DISCORD_BOT_TOKEN=<bot token>
    LAVALINK_URL=https://<lavalink-domain>        # or http://lavalink.railway.internal:${PORT}
    LAVALINK_PASSWORD=pupu2026
-   MONGO_URL=mongodb://mongo:<pass>@mongodb.railway.internal:27017
-   DB_NAME=pupu
    SUPABASE_DB_URL=postgresql://postgres.<ref>:<pass>@aws-0-<region>.pooler.supabase.com:5432/postgres
    ```
 3. No public networking needed — it's an outbound-only worker.
@@ -354,7 +347,7 @@ Plus one **MongoDB** database (Railway plugin or Atlas).
    ```
    uvicorn server:app --host 0.0.0.0 --port $PORT
    ```
-3. **Variables:** `MONGO_URL`, `DB_NAME`, `JWT_SECRET` (64-hex), `ADMIN_USERNAME`,
+3. **Variables:** `JWT_SECRET` (64-hex), `ADMIN_USERNAME`,
    `ADMIN_PASSWORD`, `CORS_ORIGINS=https://<your-frontend-domain>`.
 4. **Generate Domain** → this URL becomes the frontend's `REACT_APP_BACKEND_URL`.
 5. Verify: `curl https://<api-domain>/api/bot/status` → JSON with `"online": true`.
@@ -369,8 +362,7 @@ Plus one **MongoDB** database (Railway plugin or Atlas).
 In one Railway project, services reach each other over the internal network:
 `LAVALINK_URL=http://lavalink.railway.internal:2333`… note Railway binds the container to
 `${PORT}`; if Railway assigns a port ≠ 2333, use `http://lavalink.railway.internal:${PORT}`
-— or simply use the public domain (works fine, small latency cost). MongoDB: always prefer
-the `*.railway.internal` URL.
+— or simply use the public domain (works fine, small latency cost).
 
 ### 7.7 Environment variable matrix
 
@@ -383,7 +375,6 @@ the `*.railway.internal` URL.
 | `OVERRIDE_PLAYER_VARIANT=IAS` | | ✅ | | | |
 | `DISCORD_BOT_TOKEN` | | | ✅ | | |
 | `LAVALINK_URL` | | | ✅ | | |
-| `MONGO_URL` + `DB_NAME` | | | ✅ | ✅ | |
 | `SUPABASE_DB_URL` | | | ✅ | | |
 | `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` | | | | ✅ | |
 | `CORS_ORIGINS` | | | | ✅ | |
@@ -460,7 +451,6 @@ authorize once, then set the printed refresh token as variable `YOUTUBE_REFRESH_
 | API healthy but dashboard blank | `REACT_APP_BACKEND_URL` missing at build → set var, **Redeploy** frontend |
 | Admin login 401 | `ADMIN_USERNAME/ADMIN_PASSWORD` not set on `pupu-api` |
 | Service keeps restarting | Check service logs; usually missing env var (KeyError at boot) |
-| MongoDB connection timeout | Use the `railway.internal` URL; check IP allowances on Atlas |
 
 ---
 
@@ -523,7 +513,7 @@ Patterns and rules that keep this codebase safe to extend (for humans **and** AI
 ### Modify safely
 - **Never** break the status contract: `bot_status` doc fields consumed by both frontends;
   add fields, don't rename.
-- Admin control channel is one-directional (API → Mongo → bot). Keep `action` whitelist in
+- Admin control channel is one-directional (API → Postgres → bot). Keep `action` whitelist in
   **both** `server.py` and `poll_commands()` in sync.
 - After any bot change, run the playback proof (§11). After any API change, run
   `pytest backend/tests -o addopts=''`.
@@ -577,5 +567,5 @@ startup when the flag exists.
 ---
 
 <div align="center">
-Made with discord.py · Wavelink · Lavalink · FastAPI · React · MongoDB · Supabase 🎶
+Made with discord.py · Wavelink · Lavalink · FastAPI · React · Supabase Postgres 🎶
 </div>

@@ -158,3 +158,22 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
   • `backend/pupu_bot.py`: updated with localhost default fallbacks for Lavalink connection.
   • `lavalink/application.yml`: updated port to `${LAVALINK_PORT:2333}` so Railway's `$PORT` does not conflict.
   • Railway requirements simplified to just 1 service (`tawhid2015/Pupu`) + 1 MongoDB database + 3 environment variables (`DISCORD_BOT_TOKEN`, `SUPABASE_DB_URL`, `MONGO_URL`).
+
+## 2026-09-20 — MongoDB fully removed → Supabase Postgres for EVERYTHING (DONE)
+- User: "mongodb not good lets use supabase". Their old Atlas URI (cluster0.rjxzn) was dead
+  (NXDOMAIN — cluster deleted). Their new direct DSN db.gjlptminalswifyfehpw.supabase.co is
+  IPv6-only (unreachable from pod) → derived working session-pooler DSN, verified CONNECT OK:
+  postgresql://postgres.gjlptminalswifyfehpw:<pwd url-encoded>@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres
+  (same project that already hosts playlists tables). .env SUPABASE_DB_URL updated to this.
+- NEW backend/bot_db.py: asyncpg pool + schema (bot_kv, bot_commands, login_attempts,
+  status_checks) + helpers; replaces ALL motor/MongoDB usage.
+- pupu_bot.py: push_status → bot_db.save_status (bot_kv upsert), poll_commands →
+  fetch_pending_commands/complete_command; setup_hook calls bot_db.init_schema().
+- server.py: all endpoints (status, bot/status, admin login/overview/control) use bot_db;
+  startup event inits schema; shutdown closes pool. motor import removed everywhere.
+- Verified: bot online 98 guilds pushing status via Postgres; admin login+overview OK;
+  status_checks POST/GET OK; pytest 23/23 passed.
+- README purged of all MongoDB mentions (17 edits: diagram, config table, deploy steps).
+- Railway All-in-One now needs only 2 vars: DISCORD_BOT_TOKEN + SUPABASE_DB_URL (no DB plugin).
+- deploy/railway-deploy.sh marked LEGACY (it provisioned MongoDB).
+- NOTE: motor/pymongo still in requirements.txt (unused, harmless) — could be pruned later.

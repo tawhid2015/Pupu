@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
+# ⚠ LEGACY multi-service path — superseded by the root all-in-one Dockerfile
+#   (see README §7.1). Kept only if you intentionally want 5 separate services.
+#   NOTE: MongoDB is no longer used anywhere — Supabase Postgres stores
+#   playlists, live status and the admin command channel (backend/bot_db.py).
+# ─────────────────────────────────────────────────────────────────────────────
 # Pupu — one-command Railway bootstrap
 #
 # Creates a Railway project with ALL services and deploys them:

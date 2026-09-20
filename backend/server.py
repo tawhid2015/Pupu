@@ -3,7 +3,6 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import uuid
@@ -18,10 +17,8 @@ from datetime import datetime, timezone, timedelta
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
-mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ.get('DB_NAME', 'pupu')]
+# Control-plane storage: Supabase Postgres via bot_db (status, commands, login attempts)
+import bot_db
 
 # Admin auth config
 JWT_SECRET = os.environ.get('JWT_SECRET', 'pupu_jwt_secret_key_2026_production_default')
@@ -55,32 +52,19 @@ async def root():
 
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
+    status_obj = StatusCheck(client_name=input.client_name)
+    await bot_db.insert_status_check(status_obj.id, input.client_name)
     return status_obj
 
 @api_router.get("/status", response_model=List[StatusCheck])
 async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
+    rows = await bot_db.list_status_checks()
+    return [StatusCheck(**r) for r in rows]
 
 
 @api_router.get("/bot/status")
 async def bot_status():
-    doc = await db.bot_status.find_one({"_id": "pupu"}, {"_id": 0})
+    doc = await bot_db.get_status()
     if not doc:
         return {"online": False, "name": "Pupu", "guilds": 0, "users": 0,
                 "active_players": 0, "players": [], "updated_at": None}
@@ -131,7 +115,7 @@ async def require_admin(request: Request) -> str:
 
 
 async def _get_status_doc():
-    doc = await db.bot_status.find_one({"_id": "pupu"}, {"_id": 0}) or {}
+    doc = await bot_db.get_status() or {}
     updated_at = doc.get("updated_at")
     if isinstance(updated_at, str):
         try:
@@ -146,23 +130,20 @@ async def _get_status_doc():
 async def admin_login(body: AdminLogin, request: Request):
     ip = request.client.host if request.client else "?"
     ident = f"{ip}:{body.username}"
-    rec = await db.login_attempts.find_one({"_id": ident})
+    rec = await bot_db.get_login_attempt(ident)
     now = datetime.now(timezone.utc)
     if rec and rec.get("count", 0) >= 5:
         locked_until = rec.get("locked_until")
-        if locked_until and datetime.fromisoformat(locked_until) > now:
+        if locked_until and locked_until > now:
             raise HTTPException(status_code=429, detail="Too many attempts. Try again later.")
     ok = (body.username == ADMIN_USERNAME and
           bcrypt.checkpw(body.password.encode(), ADMIN_PASSWORD_HASH))
     if not ok:
         count = (rec.get("count", 0) if rec else 0) + 1
-        await db.login_attempts.update_one(
-            {"_id": ident},
-            {"$set": {"count": count,
-                      "locked_until": (now + timedelta(minutes=15)).isoformat() if count >= 5 else None}},
-            upsert=True)
+        await bot_db.record_login_attempt(
+            ident, count, now + timedelta(minutes=15) if count >= 5 else None)
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    await db.login_attempts.delete_one({"_id": ident})
+    await bot_db.clear_login_attempt(ident)
     return {"token": create_admin_token(), "username": ADMIN_USERNAME}
 
 
@@ -204,16 +185,12 @@ async def admin_control(body: ControlAction, admin: str = Depends(require_admin)
     if body.action not in {"pause", "resume", "skip", "stop", "leave", "volume"}:
         raise HTTPException(status_code=400, detail="Unknown action")
     cmd_id = str(uuid.uuid4())
-    await db.bot_commands.insert_one({
-        "_id": cmd_id, "guild_id": body.guild_id, "action": body.action,
-        "value": body.value, "status": "pending",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
+    await bot_db.enqueue_command(cmd_id, body.guild_id, body.action, body.value)
     # brief wait for the bot poller (2s loop) to pick it up
     import asyncio
     for _ in range(15):
         await asyncio.sleep(0.4)
-        rec = await db.bot_commands.find_one({"_id": cmd_id}, {"_id": 0, "status": 1, "result": 1})
+        rec = await bot_db.command_result(cmd_id)
         if rec and rec.get("status") == "done":
             return {"ok": rec.get("result") == "ok", "result": rec.get("result")}
     return {"ok": False, "result": "timeout — bot may be offline"}
@@ -252,6 +229,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+@app.on_event("startup")
+async def startup_db():
+    try:
+        await bot_db.init_schema()
+        logger.info("Control DB connected (Supabase Postgres)")
+    except Exception as e:
+        logger.error("Control DB init failed: %s", e)
+
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    client.close()
+    await bot_db.close()
