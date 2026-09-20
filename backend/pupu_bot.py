@@ -42,6 +42,15 @@ def emb(desc: str, title: str = None) -> discord.Embed:
     return e
 
 
+SEARCH_PREFIXES = ("scsearch:", "ytsearch:", "ytmsearch:", "spsearch:", "amsearch:", "dzsearch:")
+
+
+async def search_tracks(query: str) -> wavelink.Search:
+    if query.lower().startswith(SEARCH_PREFIXES):
+        return await wavelink.Playable.search(query, source=None)
+    return await wavelink.Playable.search(query, source=wavelink.TrackSource.YouTube)
+
+
 class Pupu(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
@@ -91,6 +100,59 @@ class Pupu(commands.Bot):
                 pass
         await player.disconnect()
 
+    async def on_wavelink_track_exception(self, payload: wavelink.TrackExceptionEventPayload):
+        player: wavelink.Player = payload.player
+        track = payload.track
+        exc = payload.exception or {}
+        msg = exc.get("message", "unknown error")
+        logger.error("TrackException on %s (%s): %s", track.title, track.source, msg)
+        if not player:
+            return
+        chan = getattr(player, "home", None)
+
+        # One-shot SoundCloud fallback when a YouTube track can't stream
+        failed = getattr(player, "_fallback_failed", set())
+        if track.source == "youtube" and track.identifier not in failed:
+            failed.add(track.identifier)
+            player._fallback_failed = failed
+            try:
+                results = await wavelink.Playable.search(
+                    f"{track.title} {track.author}",
+                    source=wavelink.TrackSource.SoundCloud,
+                )
+            except Exception as e:
+                results = None
+                logger.error("fallback search failed: %s", e)
+            if results:
+                alt = results[0]
+                logger.info("DIAG/fallback: %s -> %s", track.title, alt.title)
+                if chan:
+                    try:
+                        await chan.send(embed=emb(
+                            f"**{track.title}** couldn't stream from YouTube. "
+                            f"Playing the SoundCloud version instead: **{alt.title}** 🔁"))
+                    except Exception:
+                        pass
+                if player.playing or player.paused:
+                    player.queue.put_at(0, alt)
+                    await player.skip(force=True)
+                else:
+                    await player.play(alt)
+                return
+        if chan:
+            try:
+                await chan.send(embed=emb(
+                    f"Couldn't play **{track.title}** — the source blocked it "
+                    f"({track.source}). Try another track. ⚠️"))
+            except Exception:
+                pass
+
+    async def on_wavelink_track_stuck(self, payload: wavelink.TrackStuckEventPayload):
+        player: wavelink.Player = payload.player
+        logger.error("Track stuck: %s", payload.track.title)
+        if player and player.playing:
+            await player.skip(force=True)
+
 
 bot = Pupu()
 
@@ -126,7 +188,7 @@ async def play(ctx: commands.Context, *, query: str):
         return
     player.home = ctx.channel
     try:
-        results = await wavelink.Playable.search(query)
+        results = await search_tracks(query)
     except Exception as e:
         logger.error("search error: %s", e)
         return await ctx.reply(embed=emb("Search failed. Try again."))
@@ -354,6 +416,11 @@ async def push_status():
                 "position": vc.position,
                 "length": vc.current.length,
             })
+    session_id = None
+    try:
+        session_id = wavelink.Pool.get_node().session_id
+    except Exception:
+        pass
     doc = {
         "_id": "pupu",
         "online": True,
@@ -364,6 +431,8 @@ async def push_status():
         "active_players": len(players),
         "players": players,
         "latency_ms": round(bot.latency * 1000) if bot.latency else None,
+        "session_id": session_id,
+        "test_guild_id": str(bot.guilds[0].id) if bot.guilds else None,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
@@ -372,7 +441,77 @@ async def push_status():
         logger.error("status write failed: %s", e)
 
 
+async def _rest_position(session_id: str, guild_id: int):
+    import aiohttp
+    url = f"{LAVALINK_URL}/v4/sessions/{session_id}/players/{guild_id}"
+    async with aiohttp.ClientSession() as s:
+        async with s.get(url, headers={"Authorization": LAVALINK_PASSWORD}) as r:
+            d = await r.json(content_type=None)
+            if not isinstance(d, dict):
+                return 0, {}
+            state = d.get("state") or {}
+            track = d.get("track") or {}
+            return state.get("position", 0), track.get("info") or {}
+
+
+async def run_diagnostic():
+    await bot.wait_until_ready()
+    flag = Path("/tmp/pupu_diag.flag")
+    if not flag.exists():
+        return
+    flag.unlink(missing_ok=True)
+    logger.info("DIAG: starting playback diagnostic")
+    for guild in bot.guilds:
+        for ch in guild.voice_channels:
+            if any(not m.bot for m in ch.members):
+                continue
+            perms = ch.permissions_for(guild.me)
+            if not (perms.connect and perms.speak):
+                continue
+            try:
+                player = await ch.connect(cls=wavelink.Player, self_deaf=True)
+            except Exception as e:
+                logger.info("DIAG: connect failed in %s/%s: %s", guild.name, ch.name, e)
+                continue
+            player.inactive_timeout = 9999
+            await asyncio.sleep(2)
+            sid = wavelink.Pool.get_node().session_id
+
+            async def probe(ident, label, timeout=20):
+                tracks = await search_tracks(ident)
+                if not tracks:
+                    logger.info("DIAG: %s search returned nothing", label)
+                    return
+                await player.play(tracks[0], volume=20)
+                for _ in range(timeout // 2):
+                    await asyncio.sleep(2)
+                    pos, info = await _rest_position(sid, guild.id)
+                    if pos > 3000:
+                        logger.info("DIAG: %s OK (pos=%dms now=%s via=%s)",
+                                    label, pos, info.get("title"), info.get("sourceName"))
+                        return
+                pos, info = await _rest_position(sid, guild.id)
+                logger.info("DIAG: %s FAILED (pos=%dms tried=%s)",
+                            label, pos, tracks[0].title)
+
+            try:
+                await probe("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", "HTTP-DIRECT")
+                await probe("scsearch:lofi beats", "SOUNDCLOUD")
+                # YouTube attempt: expect TrackException -> SoundCloud fallback handler fires
+                await probe("ytsearch:never gonna give you up rick astley", "YOUTUBE+FB", 30)
+            except Exception as e:
+                logger.info("DIAG: error: %s", e)
+            try:
+                await player.disconnect()
+            except Exception:
+                pass
+            logger.info("DIAG: done")
+            return
+    logger.info("DIAG: no usable empty voice channel found")
+
+
 async def main():
+    asyncio.create_task(run_diagnostic())
     async with bot:
         await bot.start(TOKEN)
 
