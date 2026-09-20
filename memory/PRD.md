@@ -120,3 +120,16 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
 - Filters/bassboost, 24/7 stay-in-channel mode, autoplay related tracks
 - DJ/permission role restriction
 - Per-user playlists, favorites, history, lyrics
+
+## 2026-09-20 — Web UI command copy buttons + README error docs (DONE)
+- User asked (msg 580): show BOTH `.` and `/` variants for every command in the Web UI with a
+  per-command "Copy" button, and document the YouTube errors/fixes in the README.
+- App.js: COMMANDS restructured to {c, a, d} objects (16 individual commands); new CmdRow
+  component renders `.cmd args` + `/cmd` chips and a copy button (copies the `.` prefix version,
+  e.g. `.play`, with inline "Copied!" feedback; data-testid `copy-cmd-<cmd>`).
+- App.css: .cmd-line, .cmd-slash, .cmd-copy (+hover/copied states), .cmd-desc styles.
+- README.md: new §7.11 field-notes table (AllClientsFailedException → OAuth device code;
+  SABR → yt-cipher; poToken+OAuth conflict; silent playback → inactive_channel_tokens +
+  PlayStation UA) and 3 new rows in §13 Troubleshooting.
+- Verified via screenshot: desktop 1920 + mobile 390 render correctly, copy button flips to
+  "Copied!" on click. No real horizontal overflow (only fixed decorative glow).

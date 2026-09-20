@@ -139,6 +139,12 @@
 .cmd-card li { display: flex; flex-direction: column; gap: 3px; }
 .cmd-card code { font-family: "DM Mono", monospace; font-size: 0.82rem; color: var(--text); background: rgba(124,92,255,0.10); padding: 3px 9px; border-radius: 7px; align-self: flex-start; }
 .cmd-card li span { color: var(--muted); font-size: 0.82rem; }
+.cmd-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cmd-card code.cmd-slash { color: var(--violet); background: rgba(124,92,255,0.16); }
+.cmd-copy { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; font-family: "DM Mono", monospace; font-size: 0.7rem; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; cursor: pointer; transition: color .18s ease, border-color .18s ease, background-color .18s ease, transform .18s ease; }
+.cmd-copy:hover { color: var(--violet); border-color: var(--violet); background: rgba(124,92,255,0.10); transform: translateY(-1px); }
+.cmd-copy.copied { color: #4ade80; border-color: #4ade80; background: rgba(74,222,128,0.10); }
+.cmd-desc { color: var(--muted); font-size: 0.82rem; }
 
 .foot { text-align: center; margin-top: 70px; color: var(--muted); font-family: "DM Mono", monospace; font-size: 0.8rem; }
 .foot span { display: inline-flex; align-items: center; gap: 7px; }

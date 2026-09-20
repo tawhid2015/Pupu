@@ -387,6 +387,17 @@ YouTube blocks anonymous playback from datacenter IPs. Pupu's final, working set
    title (another YouTube upload, then SoundCloud) and reconnects the voice player if needed —
    users hear music either way.
 
+#### Errors we hit → root cause → fix (field notes)
+
+| Error / symptom | Root cause | Fix that worked |
+|---|---|---|
+| `AllClientsFailedException: All clients failed to load the item` on every YouTube track | YouTube bot-check against the datacenter IP — all anonymous Innertube clients refused | Enabled `plugins.youtube.oauth` and completed the **Google OAuth Device Code** flow once with a burner account; the plugin stores a refresh token and plays as an authenticated TV client |
+| `No supported audio streams` / SABR format errors | YouTube rotated to SABR streaming; the signature cipher could not be decrypted locally | Self-hosted **yt-cipher** (Deno, port 8002) and pointed `plugins.youtube.remoteCipher` at it — deciphering happens off-Lavalink and tracks resolve again |
+| "The page needs to be reloaded" after enabling poToken + OAuth together | `pot:` block and OAuth tokens conflict — clients get mixed credentials | Removed the poToken block entirely; kept OAuth only (poToken generator retained in `lavalink/potoken/` but intentionally disabled) |
+| "Added to Queue / Now Playing but **no sound**" | Wavelink's default `inactive_channel_tokens` throttled the voice session; the default player User-Agent was also being rejected | Disabled `inactive_channel_tokens` on the wavelink node and pinned a PlayStation client User-Agent in the youtube-plugin snapshot — playback position now advances and audio is audible |
+| Searches return empty right after Lavalink boots | youtube-plugin visitor-token warm-up (1–3 min) | Expected — self-heals, no action needed |
+
+
 On Railway: run yt-cipher as an extra service (Root Directory `lavalink/yt-cipher`, start
 `deno run --no-check --allow-net --allow-read --allow-write --allow-env server.ts` with env
 `API_TOKEN`, `OVERRIDE_PLAYER_VARIANT=IAS`, `PORT`) and point `remoteCipher.url` at its private
@@ -509,6 +520,9 @@ startup when the flag exists.
 | Problem | Diagnosis → Fix |
 |---|---|
 | Bot online but **no sound** | Check bot log for `TrackException`. `No supported audio streams` = YouTube blocked → update youtube-plugin (§7.9). Also confirm Connect/Speak perms. |
+| `AllClientsFailedException: All clients failed to load the item` (YouTube) | Datacenter IP bot-check → complete the Google OAuth Device Code login (§7.11). Never combine OAuth with a poToken block |
+| SABR / `No supported audio streams` after a plugin update | Signature cipher rotation → run `yt-cipher` and set `plugins.youtube.remoteCipher` (§7.11) |
+| Queued, "Now Playing" shows, but **silent** | Wavelink `inactive_channel_tokens` throttling → disabled on the node; verify playback position advances in the bot log (§7.11) |
 | `.` commands ignored, `/` works | **Message Content Intent** off → enable in Developer Portal |
 | `/` commands missing | Global sync takes ≤1 h on first deploy; check `Synced N slash commands` in bot log |
 | `scsearch:` returns nothing | Old wavelink double-prefix bug — fixed in `search_tracks()`; keep using it |

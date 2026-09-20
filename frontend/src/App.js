@@ -8,6 +8,7 @@ import ProtectedRoute from "@/admin/ProtectedRoute";
 import {
   Activity, Radio, Server, Users, Gauge, Music4, Pause, Play,
   Terminal, Command, Disc3, Zap, ListMusic, Volume2, Repeat, Shuffle,
+  Copy, Check,
 } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -23,25 +24,67 @@ const fmt = (ms) => {
 
 const COMMANDS = [
   { g: "Playback", icon: Play, items: [
-    ["play <song/url>", "Search & play or queue a track"],
-    ["pause / resume", "Pause or resume playback"],
-    ["skip / stop", "Skip current or stop everything"],
-    ["nowplaying", "Show the current track"],
-    ["seek <time>", "Jump to 1:30 or 90"],
+    { c: "play", a: "<song/url>", d: "Search & play or queue a track" },
+    { c: "pause", d: "Pause playback" },
+    { c: "resume", d: "Resume playback" },
+    { c: "skip", d: "Skip the current track" },
+    { c: "stop", d: "Stop everything and clear the queue" },
+    { c: "nowplaying", d: "Show the current track" },
+    { c: "seek", a: "<time>", d: "Jump to 1:30 or 90" },
   ]},
   { g: "Queue", icon: ListMusic, items: [
-    ["queue", "List upcoming tracks"],
-    ["shuffle", "Shuffle the queue"],
-    ["remove <#>", "Remove a track by number"],
-    ["clear", "Empty the queue"],
-    ["loop", "Off / track / queue repeat"],
+    { c: "queue", d: "List upcoming tracks" },
+    { c: "shuffle", d: "Shuffle the queue" },
+    { c: "remove", a: "<#>", d: "Remove a track by number" },
+    { c: "clear", d: "Empty the queue" },
+    { c: "loop", d: "Off / track / queue repeat" },
   ]},
   { g: "Voice", icon: Volume2, items: [
-    ["join / leave", "Connect or disconnect Pupu"],
-    ["volume <0-100>", "Set the volume"],
-    ["help", "Show every command"],
+    { c: "join", d: "Connect Pupu to your voice channel" },
+    { c: "leave", d: "Disconnect Pupu" },
+    { c: "volume", a: "<0-100>", d: "Set the volume" },
+    { c: "help", d: "Show every command" },
   ]},
 ];
+
+function CmdRow({ cmd, args, desc }) {
+  const [copied, setCopied] = useState(false);
+  const text = `.${cmd}`;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <li>
+      <div className="cmd-line">
+        <code>.{cmd}{args ? ` ${args}` : ""}</code>
+        <code className="cmd-slash">/{cmd}</code>
+        <button
+          type="button"
+          className={`cmd-copy ${copied ? "copied" : ""}`}
+          onClick={copy}
+          title={`Copy ${text}`}
+          aria-label={`Copy ${text}`}
+          data-testid={`copy-cmd-${cmd}`}
+        >
+          {copied ? <Check size={13} /> : <Copy size={13} />}
+          <span>{copied ? "Copied!" : "Copy"}</span>
+        </button>
+      </div>
+      <span className="cmd-desc">{desc}</span>
+    </li>
+  );
+}
 
 function StatCard({ icon: Icon, label, value, accent, testid }) {
   return (
@@ -176,11 +219,8 @@ function StatusPage() {
             <div className="cmd-card" key={c.g} data-testid={`cmd-group-${c.g.toLowerCase()}`}>
               <div className="cmd-card-head"><c.icon size={16} /> {c.g}</div>
               <ul>
-                {c.items.map(([cmd, desc]) => (
-                  <li key={cmd}>
-                    <code>{cmd}</code>
-                    <span>{desc}</span>
-                  </li>
+                {c.items.map((it) => (
+                  <CmdRow key={it.c} cmd={it.c} args={it.a} desc={it.d} />
                 ))}
               </ul>
             </div>
