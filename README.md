@@ -341,16 +341,27 @@ the `*.railway.internal` URL.
 
 ### 7.7 Environment variable matrix
 
-| Variable | lavalink | pupu-bot | pupu-api | pupu-web |
-|---|:-:|:-:|:-:|:-:|
-| `LAVALINK_PASSWORD` | ✅ | ✅ | | |
-| `DISCORD_BOT_TOKEN` | | ✅ | | |
-| `LAVALINK_URL` | | ✅ | | |
-| `MONGO_URL` + `DB_NAME` | | ✅ | ✅ | |
-| `SUPABASE_DB_URL` | | ✅ | | |
-| `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` | | | ✅ | |
-| `CORS_ORIGINS` | | | ✅ | |
-| `REACT_APP_BACKEND_URL` | | | | ✅ |
+| Variable | lavalink | yt-cipher | pupu-bot | pupu-api | pupu-web |
+|---|:-:|:-:|:-:|:-:|:-:|
+| `LAVALINK_PASSWORD` | ✅ | | ✅ | | |
+| `YTCIPHER_URL` + `YTCIPHER_PASSWORD` | ✅ | | | | |
+| `YOUTUBE_REFRESH_TOKEN` | ✅ | | | | |
+| `API_TOKEN` (= `YTCIPHER_PASSWORD`) | | ✅ | | | |
+| `OVERRIDE_PLAYER_VARIANT=IAS` | | ✅ | | | |
+| `DISCORD_BOT_TOKEN` | | | ✅ | | |
+| `LAVALINK_URL` | | | ✅ | | |
+| `MONGO_URL` + `DB_NAME` | | | ✅ | ✅ | |
+| `SUPABASE_DB_URL` | | | ✅ | | |
+| `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` | | | | ✅ | |
+| `CORS_ORIGINS` | | | | ✅ | |
+| `REACT_APP_BACKEND_URL` | | | | | ✅ |
+
+> **yt-cipher is a 5th service** (Root Directory `lavalink/yt-cipher/`, its own `Dockerfile`
+> + `railway.toml`). Set Lavalink's `YTCIPHER_PASSWORD` equal to yt-cipher's `API_TOKEN`, and
+> point `YTCIPHER_URL` at yt-cipher's private hostname
+> (`http://yt-cipher.railway.internal:${PORT}`). `application.yml` reads all three
+> (`YTCIPHER_URL`, `YTCIPHER_PASSWORD`, `YOUTUBE_REFRESH_TOKEN`) with local-default fallbacks,
+> so the same file works locally and on Railway.
 
 ### 7.8 Keeping everything running
 - `railway.toml` sets `restartPolicyType = ON_FAILURE` on every service → auto-recovery.

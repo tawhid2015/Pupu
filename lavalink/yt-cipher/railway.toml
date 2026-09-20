@@ -1,0 +1,13 @@
+# Deploy on Railway: service with Root Directory = lavalink/yt-cipher/
+# YouTube signature/SABR decryption server for the youtube-plugin.
+# Required variables:  API_TOKEN=pupu-cipher-2026  ·  OVERRIDE_PLAYER_VARIANT=IAS
+# The container listens on $PORT (Railway injects it). Point Lavalink's
+# YTCIPHER_URL at this service's private hostname, e.g.
+#   YTCIPHER_URL=http://yt-cipher.railway.internal:${PORT}
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

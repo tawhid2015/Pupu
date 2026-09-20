@@ -48,7 +48,7 @@ plugins:
     # Do NOT combine with pot/poToken — they conflict ("The page needs to be reloaded").
     oauth:
       enabled: true
-      refreshToken: "1//0471mvG7nh6JiCgYIARAAGAQSNwF-L9IrzdUmBpt4EiG1BiebJBwgGBgTRFUwpv1q2VfhQrH1dYcjcIVZtiov5UllznP5ZFVdbgQ"
+      refreshToken: "${YOUTUBE_REFRESH_TOKEN:1//0471mvG7nh6JiCgYIARAAGAQSNwF-L9IrzdUmBpt4EiG1BiebJBwgGBgTRFUwpv1q2VfhQrH1dYcjcIVZtiov5UllznP5ZFVdbgQ}"
     clients:
       - TV
       - MUSIC
@@ -75,8 +75,8 @@ plugins:
         searching: true
     # Remote cipher server (decrypts YouTube SABR signatures). Self-hosted yt-cipher.
     remoteCipher:
-      url: "http://localhost:8002"
-      password: "pupu-cipher-2026"
+      url: "${YTCIPHER_URL:http://localhost:8002}"
+      password: "${YTCIPHER_PASSWORD:pupu-cipher-2026}"
       userAgent: "pupu"
 metrics:
   prometheus:
