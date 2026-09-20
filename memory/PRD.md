@@ -230,3 +230,20 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
 - Bot restarts clean (Prevent#9955, Lavalink ready, 18 cmds). NOTE: real voice playback /
   track-end / empty-channel behavior can only be fully verified by the user in a live Discord
   voice channel — automated tools can't join voice.
+
+## 2026-09-20 — "Now Playing" spam / infinite fallback loop fixed
+- SYMPTOM: after playlist load, same song's "Now Playing" embed spammed repeatedly.
+- ROOT CAUSE (from logs): Indila track failed to load (TrackException: All clients failed).
+  Fallback handler searched YouTube again → found the SAME video → played it → failed again.
+  on_wavelink_track_start reset _fallback_count=0 on every retry → INFINITE LOOP, each loop
+  spamming Now Playing. Also our fallback's play() fought wavelink AutoPlay's loadFailed
+  queue advancement (double advance).
+- FIXES in pupu_bot.py:
+  1. track_start no longer resets _fallback_count; new on_wavelink_track_end resets it ONLY
+     when reason=="finished" (a track that fully played proves the chain works).
+  2. Fallback reduced to ONE SoundCloud swap: put_at(0)+skip if mid-play; if the track failed
+     to load, just queue-front it and let AutoPlay advance (no self-play → no fight).
+  3. Failure message changed to "Skipping to the next track" — AutoPlay owns advancement.
+  4. Now Playing debounce: same track identifier not re-announced within 120s
+     (player._announced = (identifier, ts)).
+- Bot restarted clean (Prevent#9955). Needs user confirmation in Discord.

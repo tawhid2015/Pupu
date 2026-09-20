@@ -118,9 +118,15 @@ class Pupu(commands.Bot):
         player: wavelink.Player = payload.player
         if not player:
             return
-        player._fallback_count = 0
         mark_playing(player, payload.track)
         track = payload.track
+        # Debounce: a track that fails to load and gets retried re-emits track_start —
+        # don't announce the same song twice within 2 minutes.
+        now = datetime.now(timezone.utc).timestamp()
+        last_id, last_ts = getattr(player, "_announced", (None, 0.0))
+        player._announced = (track.identifier, now)
+        if last_id == track.identifier and now - last_ts < 120:
+            return
         chan = getattr(player, "home", None)
         if chan:
             e = emb(f"**[{track.title}]({track.uri})**\nby {track.author}", "🎶 Now Playing")
@@ -156,41 +162,50 @@ class Pupu(commands.Bot):
             return
         chan = getattr(player, "home", None)
 
-        # Retry chain with a cleaned-up title: another YouTube upload, then SoundCloud.
+        # One SoundCloud swap for a blocked YouTube track. AutoPlay (enabled) owns
+        # queue advancement — we never loop a retry: the counter only resets when
+        # a track fully finishes (see on_wavelink_track_end).
         attempts = getattr(player, "_fallback_count", 0)
-        if track.source == "youtube" and attempts < 2:
+        if track.source == "youtube" and attempts < 1:
             player._fallback_count = attempts + 1
             q = clean_query(track.title, track.author)
-            source = wavelink.TrackSource.SoundCloud if attempts == 1 else wavelink.TrackSource.YouTube
             try:
-                results = await wavelink.Playable.search(q, source=source)
+                results = await wavelink.Playable.search(q, source=wavelink.TrackSource.SoundCloud)
             except Exception as e:
                 results = None
                 logger.error("fallback search failed: %s", e)
             if results:
                 alt = results.tracks[0] if isinstance(results, wavelink.Playlist) else results[0]
-                logger.info("fallback #%d (%s): %s -> %s", attempts + 1, source, track.title, alt.title)
-                if chan and attempts == 1:
+                logger.info("fallback (SoundCloud): %s -> %s", track.title, alt.title)
+                mark_playing(player, alt)
+                player.queue.put_at(0, alt)
+                # if a stream died mid-play, skip into the swap; if the track failed to
+                # load, AutoPlay pops the swap from the queue front on its own
+                if player.playing or player.paused:
+                    await player.skip(force=True)
+                if chan:
                     try:
                         await chan.send(embed=emb(
                             f"**{track.title}** couldn't stream from YouTube. "
                             f"Playing the SoundCloud version instead: **{alt.title}** 🔁"))
                     except Exception:
                         pass
-                mark_playing(player, alt)
-                if player.playing or player.paused:
-                    player.queue.put_at(0, alt)
-                    await player.skip(force=True)
-                else:
-                    await player.play(alt)
                 return
         if chan:
             try:
                 await chan.send(embed=emb(
                     f"Couldn't play **{track.title}** — the source blocked it "
-                    f"({track.source}). Try another track. ⚠️"))
+                    f"({track.source}). Skipping to the next track. ⚠️"))
             except Exception:
                 pass
+
+    async def on_wavelink_track_end(self, payload: wavelink.TrackEndEventPayload):
+        # A track that fully played to the end proves the chain works — reset the
+        # one-swap fallback budget. (TrackStartEvent no longer resets it: a track
+        # that fails to LOAD also emits track_start, which caused an infinite
+        # retry/announce loop.)
+        if payload.reason == "finished" and payload.player:
+            payload.player._fallback_count = 0
 
     async def on_wavelink_track_stuck(self, payload: wavelink.TrackStuckEventPayload):
         player: wavelink.Player = payload.player
