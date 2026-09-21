@@ -1,0 +1,40 @@
+{
+  "summary": "Verified the Spotify single-track/playlist BUGFIX in /app/backend/pupu_bot.py programmatically. SPOTIFY_RE regex matches track/album/playlist and intl-locale variants. _fetch_spotify() successfully scrapes the public embed page: single track 5CtI0qwDJkDQGwXD1H1cLb returns title 'Despacito'; playlist 37i9dQZF1DXcBWIGoYBM5M returns a name and >5 (title,artist) pairs. py_compile passes. Lavalink REST resolution test was SKIPPED because Lavalink is FATAL in this preview container ('can't find command java'), so end-to-end ytsearch could not be exercised. pupu_bot is also FATAL due to 'Improper token has been passed' (dummy Discord token in preview) — these are pre-existing environment issues unrelated to the Spotify fix. Public API /api/bot/status and /api/admin/login return 500 because backend cannot resolve the Supabase Postgres host (DNS gaierror) from this container — also environmental, not a code regression.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/bot/status", "issue": "Returns 500 — backend cannot resolve Supabase Postgres host (socket.gaierror: Name or service not known). Environmental DNS/networking issue, not the Spotify fix.", "priority": "HIGH"},
+      {"endpoint": "/api/admin/login", "issue": "Returns 500 — same asyncpg DNS failure to Supabase host.", "priority": "HIGH"},
+      {"endpoint": "supervisor:lavalink", "issue": "FATAL: can't find command 'java'. Lavalink :2333 unreachable, so /v4/loadtracks cannot be tested. Blocks E2E verification of Spotify->ytsearch resolution chain.", "priority": "HIGH"},
+      {"endpoint": "supervisor:pupu_bot", "issue": "FATAL: discord.errors.LoginFailure 'Improper token has been passed.' DISCORD_BOT_TOKEN in env is invalid in this preview container.", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_spotify_fix.py",
+    "/app/test_reports/pytest/spotify_fix.xml"
+  ],
+  "action_items": [
+    "Environmental (not code): install Java + start Lavalink so ytsearch resolution can be verified end-to-end.",
+    "Environmental: set a valid DISCORD_BOT_TOKEN so pupu_bot supervisor process stays up.",
+    "Environmental: fix DNS/networking to Supabase host so FastAPI /api/bot/status and /api/admin/login stop returning 500 (asyncpg gaierror).",
+    "Code (nice-to-have): in _fetch_spotify(), consider stripping ' - Remix'/' - Radio Edit' suffixes when subtitle is empty to reduce YouTube mismatches; current fallback to title-only is acceptable per the request."
+  ],
+  "critical_code_review_comments": [
+    "SPOTIFY_RE at line 676 is correct and handles intl-<locale> path segment as required.",
+    "_fetch_spotify (lines 679-701) relies on Spotify's __NEXT_DATA__ script — brittle to Spotify HTML changes; ok short-term but worth a fallback (oEmbed / open graph title) to guard against silent breakage.",
+    "aiohttp.ClientSession is created per call in _fetch_spotify — fine for low volume but consider a shared session for busy servers.",
+    "play() Spotify branch (line 408-) correctly detects URL before calling Lavalink search, fixing the 'Search failed' bug for single tracks.",
+    "No _id/ObjectId leakage; no hardcoded URLs; env-driven config OK."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_spotify_fix.py (new)"
+  ],
+  "success_rate": {"backend": "75% (6/8 executable assertions passed; 1 skipped due to missing Java; 2 public-API failures are pre-existing infra issues)", "frontend": "N/A (backend-only request)"},
+  "test_credentials": "admin: pupu / pupu2026 (could not verify — /api/admin/login returns 500 due to DB DNS failure)",
+  "seed_data_creation": "None",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Spotify regex + embed-scrape logic is proven working via pytest (test_spotify_fix.py). To fully verify the fix end-to-end, Lavalink must be running (needs Java) and a valid DISCORD_BOT_TOKEN must be provided. The public API 500s are unrelated (Supabase DNS from container). Do not re-run playlist/status feature tests already covered in iterations 1-7.",
+  "rca of the issue": "Original bug: Lavalink has no Spotify source plugin, so passing an open.spotify.com/track/... to Wavelink search returned empty and the play() handler emitted 'Search failed'. Fix routes Spotify URLs through _fetch_spotify() (scrape embed page NEXT_DATA JSON) to obtain title/artist, then queues via ytsearch on Lavalink. Verified: regex matches all 4 URL variants; embed scrape returns 'Despacito' for the sample track and a populated tracklist for the sample playlist. YouTube resolution leg couldn't be exercised here because Lavalink is down in this container (no Java)."
+}

@@ -269,3 +269,22 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
 - NEW: player._blocked set — identifiers failing with "not available/unavailable" are
   remembered per session; repeat attempts (e.g. YouTube RD autoplay mixes re-suggesting the
   same blocked video) are skipped silently, no message spam.
+
+## 2026-09-20/21 — Spotify single-track link support (VERIFIED by testing_agent iter_8 + e2e REST)
+- BUG: `.play <open.spotify.com/track/...>` → "Search failed" (Lavalink has no Spotify plugin).
+- FIX in pupu_bot.py play(): detect open.spotify.com URLs via SPOTIFY_RE → _fetch_spotify()
+  embed scrape → search_tracks(title+artist) → queue. Single track → 'Added to Queue';
+  playlist/album → 'Importing from Spotify…' progress note → 'Added N tracks'.
+- testing_agent iteration_8: regex matches track/album/playlist/intl variants, scrape returns
+  metadata, py_compile passes (new test: backend/tests/test_spotify_fix.py).
+- E2E leg (agent skipped — Lavalink was down): main agent verified Spotify track → Lavalink
+  ytsearch → 20 playable results. VERIFIED as far as possible without a Discord client.
+
+## 2026-09-21 — ENV INCIDENT after pod resume (needs user action)
+- Pod resumed; Lavalink boot FATAL ("can't find command java" — PATH quirk at supervisor boot;
+  manual `supervisorctl -c /etc/supervisor/supervisord.conf start lavalink` works). RESTORED.
+- NEW TEST TOKEN IS DEAD: discord.errors.LoginFailure "Improper token has been passed" —
+  Discord invalidated the Prevent#9955 token (same value that worked at 18:44 yesterday; likely
+  auto-killed after being shared in chat, or user regenerated). pupu_bot is FATAL until the
+  user provides a FRESH token. backend/.env token untouched (grep-verified).
+- LESSON: after any pod resume, check lavalink + pupu_bot status; restart lavalink first.
