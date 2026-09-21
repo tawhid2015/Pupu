@@ -288,3 +288,13 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
   auto-killed after being shared in chat, or user regenerated). pupu_bot is FATAL until the
   user provides a FRESH token. backend/.env token untouched (grep-verified).
 - LESSON: after any pod resume, check lavalink + pupu_bot status; restart lavalink first.
+
+## 2026-09-21 — Stack restored: fresh token + DSN corruption fixed
+- Fresh test token applied (Prevent#9955, same bot id 905383277840445471) → bot online.
+- FOUND DSN CORRUPTION: backend/.env SUPABASE_DB_URL password had been rewritten with a raw
+  `@` (Pupubot@2026@...) instead of %40 → asyncpg parsed host as "2026" → all the
+  "Name or service not known" / testing-agent 500s were THIS, not real DNS failure.
+  Re-encoded to %40 → bot Playlist+Control DB connected, backend startup OK, status writes OK.
+- Verified: /api/bot/status online:true (Prevent#9955, 7 guilds), /api/admin/login issues JWT.
+- LESSON: any Supabase password containing @ MUST be %-encoded in DSNs; if Supabase errors
+  appear suddenly, check the DSN line first.
