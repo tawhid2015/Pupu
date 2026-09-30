@@ -21,8 +21,16 @@ import bot_db
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+# Quiet logging keeps Railway log egress + storage low. Our own "pupu" logger
+# stays at INFO for the few lifecycle lines; noisy third-party loggers are muted.
+_LOG_LEVEL = os.environ.get("LOG_LEVEL", "WARNING").upper()
+logging.basicConfig(level=getattr(logging, _LOG_LEVEL, logging.WARNING),
+                    format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("pupu")
+logger.setLevel(logging.INFO)
+for _noisy in ("discord", "discord.gateway", "discord.client", "discord.http",
+               "wavelink", "wavelink.websocket", "wavelink.node", "wavelink.pool"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 LAVALINK_URL = os.environ.get("LAVALINK_URL", "http://localhost:2333")
@@ -1063,7 +1071,7 @@ def _player_for(guild):
     return vc if isinstance(vc, wavelink.Player) else None
 
 
-@tasks.loop(seconds=5)
+@tasks.loop(seconds=15)
 async def push_status():
     players = []
     servers = []
@@ -1142,7 +1150,7 @@ async def push_status():
 
 
 # ---------- admin control command channel ----------
-@tasks.loop(seconds=2)
+@tasks.loop(seconds=4)
 async def poll_commands():
     try:
         cmds = await bot_db.fetch_pending_commands()

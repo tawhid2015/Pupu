@@ -86,6 +86,9 @@ sentry:
   dsn: ""
   environment: ""
 logging:
+  request:
+    enabled: false      # stop logging every REST request + full payload (huge log saver)
   level:
-    root: INFO
-    lavalink: INFO
+    root: WARN
+    lavalink: WARN
+    dev.lavalink.youtube: WARN
