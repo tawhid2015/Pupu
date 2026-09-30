@@ -29,8 +29,11 @@ logging.basicConfig(level=getattr(logging, _LOG_LEVEL, logging.WARNING),
 logger = logging.getLogger("pupu")
 logger.setLevel(logging.INFO)
 for _noisy in ("discord", "discord.gateway", "discord.client", "discord.http",
-               "wavelink", "wavelink.websocket", "wavelink.node", "wavelink.pool"):
+               "wavelink", "wavelink.node", "wavelink.pool"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
+# websocket logs one WARNING per retry during the boot race (bot starts before
+# Lavalink is ready) — expected noise, so keep it at ERROR only.
+logging.getLogger("wavelink.websocket").setLevel(logging.ERROR)
 
 TOKEN = os.environ["DISCORD_BOT_TOKEN"]
 LAVALINK_URL = os.environ.get("LAVALINK_URL", "http://localhost:2333")

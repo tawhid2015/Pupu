@@ -315,3 +315,22 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
 - Expected: memory cost ~40-55% lower (est ~$5.6/mo → ~$2.5-3/mo). Takes effect on next Railway deploy.
 - NOTE: changes only affect Railway (its supervisord.conf). Dev-pod lavalink uses its own
   /etc/supervisor conf — untouched, still running.
+
+## 2026-09-30 — Cost + log reduction pass (VERIFIED by testing_agent iter_9, 26/26 pass)
+- Logging quieted everywhere (reduces Railway log ingest + egress):
+  • pupu_bot.py: root WARNING, pupu logger INFO (few lifecycle lines), discord.*/wavelink.*
+    muted to WARNING, wavelink.websocket -> ERROR (boot-race retry noise). LOG_LEVEL env override.
+  • server.py: root WARNING, module logger INFO.
+  • lavalink/application.yml: logging.request.enabled=false (kills per-request full-payload
+    dumps — the biggest spam), levels root/lavalink/dev.lavalink.youtube = WARN.
+  • supervisord.conf (Railway): uvicorn --no-access-log --log-level warning.
+- Egress cut: push_status 5s->15s (3x fewer Supabase writes), poll_commands 2s->4s (2x fewer
+  SELECTs). Dashboard offline threshold is 40s so 15s push is safe; admin control API waits 6s
+  so 4s poll still catches commands.
+- Memory (prev turn, still in effect): Lavalink JVM SerialGC -Xmx350m + capped
+  metaspace/codecache/direct in supervisord.conf; .dockerignore slims image.
+- testing_agent iteration_9: 26/26 pass — bot online (Prevent#9955, 7 guilds, fresh updated_at),
+  admin login/me/overview OK (no _id leak), wrong pw 401, /api/status Postgres round-trip,
+  Lavalink ytsearch+scsearch resolve, Spotify regex/fetch OK, logs verified quiet.
+- Expected Railway impact: memory cost ~40-55% lower + markedly fewer log lines + lower egress.
+  Takes effect on next Railway deploy (Save to GitHub -> redeploy).

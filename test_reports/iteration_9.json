@@ -1,0 +1,28 @@
+{
+  "summary": "Backend regression testing after cost/log reduction changes (iteration 9). Verified 26 tests across bot status, admin API, cost-reduction, and Spotify regex/fetch — all pass. Confirmed: /api/bot/status returns online=true with name Prevent#9955, 7 guilds, and fresh updated_at (< 40s after the 15s push-loop change); admin login (pupu/pupu2026) issues JWT; wrong password -> 401; /api/admin/me and /api/admin/overview work with no _id leaks; legacy /api/status POST+GET Postgres round-trip works; Lavalink ytsearch:Despacito and scsearch:Indila Love Story both return >0 tracks (low-memory JVM + WARN logging did not break resolution); Spotify SPOTIFY_RE matches playlist/album/track/intl URLs and _fetch_spotify('...5CtI0qwDJkDQGwXD1H1cLb') returns 'Despacito'; log-reduction verified in current pupu_bot process — zero wavelink DEBUG lines and zero 'discord.gateway INFO ... has connected' lines, while pupu INFO lifecycle lines (Playlist DB connected, Control DB connected, Synced 18 slash commands, Lavalink node ready, Pupu online) are present. Supervisor shows lavalink, pupu_bot, backend all RUNNING.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_cost_reduction.py",
+    "/app/backend/tests/test_bot_status.py",
+    "/app/backend/tests/test_admin_api.py",
+    "/app/backend/tests/test_spotify_fix.py",
+    "/app/test_reports/pytest/iter9_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "pupu_bot.py is 1319 lines — consider splitting into modules (music/, admin_ipc/, spotify/) for maintainability, but functional today.",
+    "pupu_bot.py uses logging.basicConfig at import-time and then setLevel on discord.* loggers; discord.py's Client.run() calls setup_logging() which can override handlers/levels. The current run shows this is effectively suppressed (WARN for discord.gateway), but note historical log lines from an earlier restart still contained 'discord.gateway INFO has connected' — verify the fix stays after every fresh restart on Railway too.",
+    "Lavalink wavelink.websocket first-connect race logs one WARNING per retry (~4 lines at boot) because bot starts before Lavalink is ready; harmless but adds startup noise. A short asyncio.sleep or supervisor priority ordering could remove those."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_cost_reduction.py (new)"
+  ],
+  "success_rate": {"backend": "100% (26/26)", "frontend": "N/A (backend-only)"},
+  "test_credentials": "admin pupu/pupu2026; lavalink REST pupu2026",
+  "seed_data_creation": "One row inserted into Supabase status_checks with client_name 'cost-test-<epoch>' during legacy status POST test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "test_cost_reduction.py::TestLogReduction slices logs from the LAST 'Playlist DB connected' marker onward to scope checks to the current pupu_bot process. If you restart pupu_bot before running, wait ~10s so lifecycle INFO lines land in the log first. The Lavalink JVM low-mem flags apply only to Railway (/app/supervisord.conf); dev pod uses /etc/supervisor so JVM here is default — regression on Railway heap size still needs a live Railway deploy check.",
+  "rca of the issue": "Initial run of test_no_discord_gateway_connected_info failed only because it grep'd the whole log file, catching lines from a prior pupu_bot startup (before the logging setLevel change was applied). Scoping the scan to lines after the most recent 'Playlist DB connected' marker (current process only) makes the test correctly reflect the state of the currently running bot, which produces zero discord.gateway INFO lines."
+}
