@@ -1,0 +1,41 @@
+# Keep the Railway build context small — exclude anything no build stage needs.
+# (Reduces image size, build time, and pull egress.)
+
+# VCS / editor
+.git
+.gitignore
+.vscode
+.idea
+**/.DS_Store
+
+# Python caches
+**/__pycache__
+**/*.pyc
+**/*.pyo
+*.egg-info
+
+# Node deps (reinstalled inside the frontend-builder stage)
+**/node_modules
+frontend/build
+
+# Dev-only / docs / agent artifacts (never used at runtime)
+memory/
+test_reports/
+.emergent/
+deploy/
+backend/tests/
+lavalink/yt-cipher/.github/
+lavalink/yt-cipher/tests/
+lavalink/potoken/
+
+# Local Lavalink jars — downloaded fresh in the Dockerfile, not needed from context
+lavalink/Lavalink.jar
+lavalink/*.jar
+lavalink/plugins/
+
+# The ejs solver is rebuilt in the cipher-builder stage
+lavalink/yt-cipher/ejs/
+
+# Misc
+*.log
+README.md

@@ -298,3 +298,20 @@ pos>3900ms. Test report: /app/test_reports/iteration_2.json (100%).
 - Verified: /api/bot/status online:true (Prevent#9955, 7 guilds), /api/admin/login issues JWT.
 - LESSON: any Supabase password containing @ MUST be %-encoded in DSNs; if Supabase errors
   appear suddenly, check the DSN line first.
+
+## 2026-09-30 — Railway cost reduction (memory tuning + image slimming)
+- Railway cost breakdown: Memory = $2.90 of $3.05 (95%). RAM steady ~1.15GB. CPU ~0.
+  Cost lever = reduce memory. (Dev-pod hogs craco 372MB / mongo-mcp / plugins-uvicorn are
+  Emergent tooling NOT present on Railway; real prod procs = Lavalink JVM + Deno + bot + uvicorn.)
+- JVM tuning in /app/supervisord.conf lavalink cmd:
+  OLD: java -Xmx512M -XX:+UseG1GC
+  NEW: java -Xms64m -Xmx350m -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m
+       -XX:ReservedCodeCacheSize=48m -XX:MaxDirectMemorySize=128m -XX:+ExitOnOutOfMemoryError
+  Measured pod boot: old 220MB RSS vs new 182MB idle; heap ceiling 512M→350M (bounds peak
+  billing). Flags java-validated. autorestart catches any OOM cleanly.
+- NEW /app/.dockerignore: excludes node_modules, __pycache__, .git, ejs (rebuilt in stage),
+  potoken (dead), lavalink jars (downloaded in Dockerfile), tests, memory/, test_reports/,
+  deploy/, docs → smaller image, faster build, less egress. Verified no build-stage input excluded.
+- Expected: memory cost ~40-55% lower (est ~$5.6/mo → ~$2.5-3/mo). Takes effect on next Railway deploy.
+- NOTE: changes only affect Railway (its supervisord.conf). Dev-pod lavalink uses its own
+  /etc/supervisor conf — untouched, still running.
