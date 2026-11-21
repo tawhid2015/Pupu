@@ -1,0 +1,35 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /showcase/tauri/sidecar
+    schedule:
+      interval: weekly
+    ignore:
+      # Bumped by hand with gg-core: it must match the Claude Code version gg-core pins (test/claudecode.test.mjs).
+      - dependency-name: "@anthropic-ai/claude-agent-sdk"
+    groups:
+      # The SDK must match the Claude Code version gg-core pins (test/claudecode.test.mjs): they move together.
+      claude-code:
+        patterns: ["@anthropic-ai/claude-agent-sdk", "@kenkaiiii/*"]
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: cargo
+    directory: /showcase/tauri/src-tauri
+    schedule:
+      interval: weekly
+    ignore:
+      # Stays on the major version Tauri's own plugins use (tauri-plugin-single-instance), so it isn't built twice.
+      - dependency-name: zbus
+        update-types: ["version-update:semver-major"]
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]

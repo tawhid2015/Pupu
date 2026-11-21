@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Menu bar only: no Dock icon, no app switcher entry, even during launch. -->
+  <key>LSUIElement</key>
+  <true/>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Roamies listens while you hold your talk shortcut.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>Roamies turns what you say into text, on your Mac.</string>
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>Roamies reads files on your Desktop when you ask it to.</string>
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>Roamies reads files in Documents when you ask it to.</string>
+  <key>NSDownloadsFolderUsageDescription</key>
+  <string>Roamies reads files in Downloads when you ask it to.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>Roamies looks at your screen when you ask it to.</string>
+</dict>
+</plist>

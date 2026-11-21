@@ -1,0 +1,249 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # Linux for the shared code and the Linux beta (voice helper, overlay), macOS for the Swift helpers, Windows for
+    # its Rust helpers (voice and hands).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: showcase/tauri
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: showcase/tauri/sidecar/package-lock.json
+
+      - name: Install sidecar dependencies
+        working-directory: showcase/tauri/sidecar
+        run: npm ci
+
+      - name: Test sidecar
+        working-directory: showcase/tauri/sidecar
+        run: npm test
+
+      - name: Check the workflows' inline node scripts
+        if: runner.os == 'Linux'
+        working-directory: ${{ github.workspace }}
+        run: node .github/scripts/check-inline-node.mjs
+
+      # Tauri's Linux build dependencies (v2.tauri.app/start/prerequisites, Debian list).
+      - name: Install Tauri system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev xvfb dbus-x11 xdotool
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            showcase/tauri/src-tauri -> target
+            showcase/tauri/src-tauri/voice-win -> target
+            showcase/tauri/src-tauri/hands-win -> target
+
+      # Copies the web files into dist/, bundles the sidecar, then `cargo build` (debug). On macOS this also
+      # compiles the Swift helpers; on Windows it builds the voice and hands helpers first, on Linux the voice helper
+      # (release, as shipped).
+      - name: Build
+        run: ./build.sh dev
+
+      - name: Test the macOS voice helper
+        if: runner.os == 'macOS'
+        run: |
+          src-tauri/binaries/roamies-voice-"$(rustc -vV | sed -n 's/^host: //p')" --test-gain
+          src-tauri/binaries/roamies-voice-"$(rustc -vV | sed -n 's/^host: //p')" --test-wake
+          src-tauri/binaries/roamies-voice-"$(rustc -vV | sed -n 's/^host: //p')" --test-snap
+          src-tauri/binaries/roamies-voice-"$(rustc -vV | sed -n 's/^host: //p')" --test-clicks
+          src-tauri/binaries/roamies-voice-"$(rustc -vV | sed -n 's/^host: //p')" --test-chord
+          src-tauri/binaries/roamies-voice-"$(rustc -vV | sed -n 's/^host: //p')" --test-mics
+          src-tauri/binaries/roamies-voice-"$(rustc -vV | sed -n 's/^host: //p')" --test-spaces
+
+      - name: Test the macOS hands helper
+        if: runner.os == 'macOS'
+        run: |
+          src-tauri/binaries/roamies-hands-"$(rustc -vV | sed -n 's/^host: //p')" --self-test
+
+      # The shell's own checks (second-launch flags; on Linux the session, click areas, autostart and screenshots).
+      - name: Test the app shell
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+
+      # --release reuses the voice helper build.sh just made instead of compiling Parakeet again.
+      - name: Test the Linux voice helper
+        if: runner.os == 'Linux'
+        run: cargo test --release --locked --manifest-path src-tauri/voice-win/Cargo.toml
+
+      - name: Test the Windows voice helper
+        if: runner.os == 'Windows'
+        run: cargo test --release --locked --manifest-path src-tauri/voice-win/Cargo.toml --target x86_64-pc-windows-msvc
+
+      # The voice helper loads Microsoft's ONNX Runtime and runs a tiny model with it (--test-ort), without the speech
+      # model. On Windows also on an emulated CPU without AVX2 (Intel SDE, Sandy Bridge), where the prebuilt ONNX
+      # Runtime it used to link crashed at start (#128).
+      - name: Test ONNX Runtime in the Linux voice helper
+        if: runner.os == 'Linux'
+        run: src-tauri/binaries/roamies-voice-x86_64-unknown-linux-gnu --test-ort --ort "$PWD/src-tauri/onnxruntime/libonnxruntime.so"
+
+      - name: Test ONNX Runtime in the Windows voice helper, natively and without AVX2
+        if: runner.os == 'Windows'
+        run: |
+          helper=src-tauri/binaries/roamies-voice-x86_64-pc-windows-msvc.exe
+          ort="$(cygpath -w "$PWD/src-tauri/onnxruntime/onnxruntime.dll")"
+          "$helper" --test-ort --ort "$ort"
+          tmp="$(cygpath -u "$RUNNER_TEMP")"
+          sde=sde-external-9.58.0-2025-06-16-win
+          curl -fsSL --retry 3 -o "$tmp/sde.tar.xz" "https://downloadmirror.intel.com/859732/$sde.tar.xz"
+          echo "ebb8b3b63fcb0b6c1f9721118ba4883703d2aed9e0db2defed4e44fba78d9ca9  $tmp/sde.tar.xz" | sha256sum -c -
+          tar -xJf "$tmp/sde.tar.xz" -C "$tmp"
+          "$tmp/$sde/sde.exe" -snb -- "$helper" --test-ort --ort "$ort"
+
+      # The Windows hands helper's logic (logic.rs) builds and is tested anywhere.
+      - name: Test the hands helper's logic
+        if: runner.os != 'Windows'
+        run: cargo test --locked --manifest-path src-tauri/hands-win/Cargo.toml
+
+      - name: Test the Windows hands helper
+        if: runner.os == 'Windows'
+        run: |
+          cargo test --release --locked --manifest-path src-tauri/hands-win/Cargo.toml --target x86_64-pc-windows-msvc
+          src-tauri/binaries/roamies-hands-x86_64-pc-windows-msvc.exe --self-test
+
+      # The real helper against a real app (Notepad): list, locate, capture, read, fill, read back, OCR (skipped with a
+      # reason when the runner has no OCR language) and refusing a terminal.
+      - name: Smoke test the Windows hands helper
+        if: runner.os == 'Windows'
+        run: src-tauri/binaries/roamies-hands-x86_64-pc-windows-msvc.exe --smoke
+
+      # The debug app starts under a virtual X screen, moves the old-layout sidekick.json into Roamies/Data, starts its
+      # sidecar (its "start" log line, in Roamies/Data/logs) and keeps running; a
+      # second launch with --summon reaches it (single instance over D-Bus) and the overlay reports its click areas.
+      - name: Smoke test the Linux app
+        if: runner.os == 'Linux'
+        run: |
+          cat > "$RUNNER_TEMP/smoke.sh" <<'SH'
+          set -u
+          export ROAMIES_DATA_DIR="$RUNNER_TEMP/roamies-data" ROAMIES_TRACE=1
+          mkdir -p "$ROAMIES_DATA_DIR"
+          echo '{"onboarded":true,"setupVersion":2,"voice":false}' > "$ROAMIES_DATA_DIR/sidekick.json"
+          src-tauri/target/debug/roamies > "$RUNNER_TEMP/app.log" 2>&1 &
+          pid=$!
+          started=false
+          for _ in $(seq 60); do
+            sleep 1
+            kill -0 $pid 2>/dev/null || break
+            if grep -qs ' start ' "$ROAMIES_DATA_DIR"/Roamies/Data/logs/*.log; then started=true; break; fi
+          done
+          shaped=false
+          if $started; then
+            # A cold runner can take a while to draw the first frame: wait up to 30 s, asking again halfway.
+            for i in $(seq 30); do
+              grep -q 'hit rects: \[(' "$RUNNER_TEMP/app.log" && break
+              if [ "$i" = 1 ] || [ "$i" = 16 ]; then src-tauri/target/debug/roamies --summon; fi
+              sleep 1
+            done
+            grep -q 'hit rects: \[(' "$RUNNER_TEMP/app.log" && shaped=true
+          fi
+          alive=false; kill -0 $pid 2>/dev/null && alive=true
+          kill $pid 2>/dev/null
+          if ! { $started && $alive && $shaped; }; then
+            tail -40 "$RUNNER_TEMP/app.log"; tail -40 "$HOME/Roamies/Data/logs/sidekick.log" "$ROAMIES_DATA_DIR"/Roamies/Data/logs/*.log 2>/dev/null
+            echo "Roamies didn't start properly (sidecar started: $started, still running: $alive, Roamie on screen: $shaped)"; exit 1
+          fi
+          echo "Roamies started its sidecar and showed the Roamie (pid $pid)"
+          SH
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1600x1000x24' bash "$RUNNER_TEMP/smoke.sh"
+
+      # Under GNOME's window manager (Mutter, X11) the overlay must not end up maximized: Mutter auto-maximizes a new
+      # resizable window covering most of the screen, and a maximized window above a fullscreen app keeps GNOME's top
+      # bar and dock up (#78). Mutter 46 (Ubuntu 24.04's; newer ones have no X11 session) runs in a container on the
+      # same virtual screen. The overlay is the biggest Roamies window kept above the others.
+      - name: Check the Linux overlay under Mutter
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y x11-utils
+          cat > "$RUNNER_TEMP/mutter.sh" <<'SH'
+          set -u
+          export ROAMIES_DATA_DIR="$RUNNER_TEMP/roamies-mutter" XDG_CURRENT_DESKTOP=GNOME
+          mkdir -p "$ROAMIES_DATA_DIR"
+          echo '{"onboarded":true,"setupVersion":2,"voice":false}' > "$ROAMIES_DATA_DIR/sidekick.json"
+          trap 'kill $pid 2>/dev/null; docker rm -f mutter >/dev/null 2>&1' EXIT
+          pid=
+          docker run -d --name mutter --network host -e DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix ubuntu:24.04 bash -c \
+            'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends mutter dbus libgl1-mesa-dri >/dev/null && dpkg-query -W mutter && exec dbus-run-session -- mutter --x11 --replace' >/dev/null
+          wm=false
+          for _ in $(seq 240); do xprop -root _NET_SUPPORTING_WM_CHECK | grep -q 'window id' && { wm=true; break; }; sleep 1; done
+          docker logs mutter 2>&1 | tail -15
+          $wm || { echo "Mutter didn't start"; exit 1; }
+          src-tauri/target/debug/roamies > "$RUNNER_TEMP/app-mutter.log" 2>&1 &
+          pid=$!
+          overlay='' area=0
+          for _ in $(seq 60); do
+            sleep 1
+            for id in $(xdotool search --onlyvisible --name '^Roamies$' 2>/dev/null); do
+              xprop -id "$id" _NET_WM_STATE | grep -q _NET_WM_STATE_ABOVE || continue
+              a=$(xwininfo -id "$id" | awk '/Width:/{w=$2} /Height:/{h=$2} END{print w * h}')
+              if [ "$a" -gt "$area" ]; then overlay=$id area=$a; fi
+            done
+            [ "$area" -gt 1000000 ] && break
+          done
+          sleep 3
+          for id in $(xdotool search --onlyvisible --name '^Roamies$' 2>/dev/null); do
+            echo "window $id ($(xwininfo -id "$id" | awk '/Width:/{w=$2} /Height:/{h=$2} END{print w "x" h}')): $(xprop -id "$id" _NET_WM_STATE)"
+          done
+          if [ "$area" -le 1000000 ]; then
+            tail -30 "$RUNNER_TEMP/app-mutter.log"; echo "No overlay window showed up under Mutter"; exit 1
+          fi
+          state=$(xprop -id "$overlay" _NET_WM_STATE)
+          size=$(xwininfo -id "$overlay" | awk '/Width:/{w=$2} /Height:/{h=$2} END{print w "x" h}')
+          echo "overlay $overlay ($size): $state"
+          if echo "$state" | grep -q MAXIMIZED; then echo "Mutter maximized the overlay (#78)"; exit 1; fi
+          # A pixel short of the screen (build_overlays).
+          if [ "$size" != 1600x999 ]; then echo "The overlay is $size, not 1600x999"; exit 1; fi
+          SH
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1600x1000x24 -ac' bash "$RUNNER_TEMP/mutter.sh"
+
+      # The debug app starts, starts its sidecar (its "start" log line) and keeps running.
+      - name: Smoke test the Windows app
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $data = Join-Path $env:RUNNER_TEMP 'roamies-data'
+          $env:ROAMIES_DATA_DIR = $data
+          $p = Start-Process -FilePath src-tauri/target/debug/roamies.exe -PassThru
+          $logs = Join-Path $data 'Roamies/Data/logs'
+          $started = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep -Seconds 1
+            if ($p.HasExited) { break }
+            if (Get-ChildItem $logs -Filter *.log -ErrorAction SilentlyContinue | Select-String -Pattern ' start ' -Quiet) { $started = $true; break }
+          }
+          $alive = -not $p.HasExited
+          if ($alive) { taskkill /PID $p.Id /T /F | Out-Null }
+          if (-not ($started -and $alive)) {
+            Get-Content (Join-Path $env:USERPROFILE 'Roamies/Data/logs/sidekick.log') -ErrorAction SilentlyContinue | Select-Object -Last 40
+            throw "Roamies didn't start its sidecar (started: $started, still running: $alive)"
+          }
+          "Roamies started its sidecar (pid $($p.Id))"

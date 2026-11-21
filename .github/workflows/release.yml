@@ -1,0 +1,298 @@
+# Release: tag a version (e.g. `git tag v0.1.0 && git push origin v0.1.0`) or run it by hand.
+# Builds a signed + notarized macOS DMG (Apple silicon and Intel), a Windows installer and the Linux beta (AppImage,
+# .deb and .rpm), then attaches them to a draft GitHub release for you to review and publish. The Linux leg is allowed
+# to fail: the release goes out for macOS and Windows either way, just without Linux files. CI (ci.yml) builds and tests on Linux,
+# macOS and Windows for every push and pull request, without signing.
+# Each build also uploads a signed update bundle; the manifest job writes latest.json, the feed the
+# in-app updater reads from the newest published release.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+          # Ubuntu 24.04: ONNX Runtime's prebuilt library (the voice helper) needs glibc 2.38, so this is the oldest
+          # base it links on, and the oldest distros it runs on (Ubuntu 24.04, Fedora 39, Debian 13).
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            bundles: appimage,deb,rpm
+            beta: true
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.beta == true }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+        working-directory: showcase/tauri
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: showcase/tauri/sidecar/package-lock.json
+
+      - name: Install sidecar dependencies
+        working-directory: showcase/tauri/sidecar
+        run: npm ci
+
+      - name: Test sidecar
+        working-directory: showcase/tauri/sidecar
+        run: npm test
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            showcase/tauri/src-tauri -> target
+            showcase/tauri/src-tauri/voice-win -> target
+            showcase/tauri/src-tauri/hands-win -> target
+          key: ${{ matrix.target }}
+
+      - name: Install the Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      # Tauri's Linux build dependencies, ALSA for the voice helper, and patchelf with the GStreamer plugins the
+      # AppImage bundles (bundleMediaFramework: spoken replies play through WebKit's GStreamer).
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev patchelf libfuse2t64 gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+
+      # Developer ID certificate into a throwaway keychain (removed at the end of the job).
+      - name: Import Apple signing certificate
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          KC="$RUNNER_TEMP/build.keychain-db"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+          ID=$(security find-identity -v -p codesigning "$KC" | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)
+          [ -n "$ID" ] || { echo "No Developer ID Application identity in the certificate"; exit 1; }
+          echo "APPLE_SIGNING_IDENTITY=$ID" >> "$GITHUB_ENV"
+
+      # The Windows installer needs NSIS, which the bundler downloads from GitHub release links; those can time out
+      # (504) for hours while the API still works. Fetch the same files through the API into the bundler's tools folder
+      # (it skips its own download when they're there, hash-checked). If this fails, the bundler still tries itself.
+      # Versions and hashes are tauri-bundler 2.10's (src/bundle/windows/nsis/mod.rs).
+      - name: Prefetch NSIS for the Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $dir = Join-Path $env:LOCALAPPDATA 'tauri'; $tmp = Join-Path $env:RUNNER_TEMP 'nsis'
+          New-Item -ItemType Directory -Force $dir, $tmp | Out-Null
+          try {
+            gh release download nsis-3.13 -R tauri-apps/binary-releases -p nsis-3.13.zip -D $tmp --clobber
+            if ($LASTEXITCODE) { throw 'NSIS download failed' }
+            gh release download nsis_tauri_utils-v0.5.3 -R tauri-apps/nsis-tauri-utils -p nsis_tauri_utils.dll -D $tmp --clobber
+            if ($LASTEXITCODE) { throw 'nsis_tauri_utils download failed' }
+            if ((Get-FileHash (Join-Path $tmp 'nsis-3.13.zip') -Algorithm SHA1).Hash -ne 'DB14F8AF2EA346B786C6AE19343F61AAF5E09B8E') { throw 'NSIS hash mismatch' }
+            if ((Get-FileHash (Join-Path $tmp 'nsis_tauri_utils.dll') -Algorithm SHA1).Hash -ne '75197FEE3C6A814FE035788D1C34EAD39349B860') { throw 'nsis_tauri_utils hash mismatch' }
+            Remove-Item -Recurse -Force (Join-Path $dir 'NSIS'), (Join-Path $dir 'nsis-3.13') -ErrorAction SilentlyContinue
+            Expand-Archive (Join-Path $tmp 'nsis-3.13.zip') -DestinationPath $dir
+            Rename-Item (Join-Path $dir 'nsis-3.13') 'NSIS'
+            $add = Join-Path $dir 'NSIS/Plugins/x86-unicode/additional'
+            New-Item -ItemType Directory -Force $add | Out-Null
+            Copy-Item (Join-Path $tmp 'nsis_tauri_utils.dll') $add
+            Write-Host "NSIS ready in $dir"
+          } catch { Write-Host "Couldn't prefetch NSIS ($_); the bundler will download it itself." }
+
+      # build.sh copies the web files, bundles the sidecar, then runs `cargo tauri build`. On macOS, Tauri
+      # signs with APPLE_SIGNING_IDENTITY and notarizes with APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID.
+      - name: Build, sign and notarize
+        env:
+          TAURI_BUNDLES: ${{ matrix.bundles }}
+          # Tauri skips the Finder layout step (background, icon spots) when CI=true; Actions runners can run it.
+          TAURI_BUNDLER_DMG_IGNORE_CI: 'true'
+          # Signs the update bundles (minisign); the public half is plugins.updater.pubkey in tauri.conf.json.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: ./build.sh release --target ${{ matrix.target }}
+
+      # CI only runs the debug build; this installs the real installer the way users do (silently, per user) and checks
+      # every part landed, the helpers start from where they were installed, and the app starts its sidecar.
+      - name: Smoke test the Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem "src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe" | Select-Object -First 1
+          if (-not $setup) { throw 'No installer was built' }
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode) { throw "The installer failed (exit code $($p.ExitCode))" }
+          $app = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Roamies'), (Join-Path $env:ProgramFiles 'Roamies') -Filter roamies.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $app) { throw 'roamies.exe is not where the installer puts it' }
+          $dir = $app.DirectoryName
+          "Installed in $dir"
+          $missing = @('roamies-node.exe', 'roamies-voice.exe', 'roamies-hands.exe', 'sidecar/sidekick.mjs', 'msvcp140.dll', 'msvcp140_1.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'onnxruntime.dll') | Where-Object { -not (Test-Path (Join-Path $dir $_)) }
+          if ($missing) { throw "The installed app is missing: $($missing -join ', ')" }
+          & (Join-Path $dir 'roamies-hands.exe') --self-test
+          if ($LASTEXITCODE) { throw "The installed hands helper failed its self-test ($LASTEXITCODE)" }
+          $ort = & (Join-Path $dir 'roamies-voice.exe') --test-ort
+          if ($LASTEXITCODE) { throw "The installed voice helper couldn't run ONNX Runtime: $ort" }
+          $perms = & (Join-Path $dir 'roamies-voice.exe') --perms
+          if (-not ($perms -match '"type":"perms"')) { throw "The installed voice helper didn't start: $perms" }
+          # Voice off so the first run doesn't download the voice model.
+          $data = Join-Path $env:RUNNER_TEMP 'roamies-installed'
+          New-Item -ItemType Directory -Force $data | Out-Null
+          Set-Content (Join-Path $data 'sidekick.json') '{"onboarded":true,"setupVersion":2,"voice":false}'
+          $env:ROAMIES_DATA_DIR = $data
+          $run = Start-Process -FilePath $app.FullName -PassThru
+          $logs = Join-Path $data 'Roamies/Data/logs' # the old-layout sidekick.json above moves in there first
+          $started = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep -Seconds 1
+            if ($run.HasExited) { break }
+            if (Get-ChildItem $logs -Filter *.log -ErrorAction SilentlyContinue | Select-String -Pattern ' start ' -Quiet) { $started = $true; break }
+          }
+          $alive = -not $run.HasExited
+          if ($alive) { taskkill /PID $run.Id /T /F | Out-Null }
+          if (-not ($started -and $alive)) {
+            Get-Content (Join-Path $env:USERPROFILE 'Roamies/Data/logs/sidekick.log') -ErrorAction SilentlyContinue | Select-Object -Last 40
+            throw "The installed Roamies didn't start its sidecar (started: $started, still running: $alive)"
+          }
+          "The installed Roamies started its sidecar (pid $($run.Id))"
+
+      # Tauri notarizes the app inside; the DMG around it is a download of its own that macOS checks too.
+      - name: Notarize the DMG
+        if: runner.os == 'macOS'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          DMG=$(ls src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg | head -1)
+          xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait --timeout 30m
+          xcrun stapler staple "$DMG"
+
+      - name: Check the signature and notarization
+        if: runner.os == 'macOS'
+        run: |
+          APP=$(ls -d src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app | head -1)
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          xcrun stapler validate "$APP"
+          spctl --assess --type execute --verbose "$APP"
+          # The installer window layout lives in .DS_Store; without it the DMG opens as a plain folder.
+          DMG=$(ls src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg | head -1)
+          xcrun stapler validate "$DMG"
+          spctl -a -t open --context context:primary-signature -v "$DMG"
+          MNT=$(mktemp -d)
+          hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$MNT" "$DMG" >/dev/null
+          ls -la "$MNT"
+          ok=1
+          for f in .DS_Store .background/background.tiff Applications; do [ -e "$MNT/$f" ] || { echo "::error::DMG is missing $f"; ok=0; }; done
+          hdiutil detach -quiet "$MNT"
+          [ $ok -eq 1 ]
+
+      - name: Remove the signing keychain
+        if: always() && runner.os == 'macOS'
+        run: security delete-keychain "$RUNNER_TEMP/build.keychain-db" || true
+
+      - name: Attach to a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          [[ "$TAG" == v* ]] || TAG="v$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "Roamies $TAG" --generate-notes || true
+          shopt -s nullglob
+          B=src-tauri/target/${{ matrix.target }}/release/bundle
+          files=($B/dmg/*.dmg $B/nsis/*-setup.exe $B/appimage/*.AppImage $B/deb/*.deb $B/rpm/*.rpm)
+          [ ${#files[@]} -gt 0 ] || { echo "No installers were built"; exit 1; }
+          # Update bundles: both Macs produce Roamies.app.tar.gz, so name them per architecture.
+          VER=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "$RUNNER_OS" = macOS ]; then
+            ARCH=$([ "${{ matrix.target }}" = aarch64-apple-darwin ] && echo aarch64 || echo x64)
+            [ -f $B/macos/Roamies.app.tar.gz.sig ] || { echo "::error::No signed update bundle was built"; exit 1; }
+            cp $B/macos/Roamies.app.tar.gz "Roamies_${VER}_${ARCH}.app.tar.gz"
+            cp $B/macos/Roamies.app.tar.gz.sig "Roamies_${VER}_${ARCH}.app.tar.gz.sig"
+            files+=("Roamies_${VER}_${ARCH}.app.tar.gz" "Roamies_${VER}_${ARCH}.app.tar.gz.sig")
+          elif [ "$RUNNER_OS" = Linux ]; then
+            # In-app updates on Linux replace the AppImage; .deb and .rpm copies are pointed to the release page.
+            sigs=($B/appimage/*.AppImage.sig)
+            [ ${#sigs[@]} -gt 0 ] || { echo "::error::No signed update AppImage was built"; exit 1; }
+            files+=("${sigs[@]}")
+          else
+            sigs=($B/nsis/*-setup.exe.sig)
+            [ ${#sigs[@]} -gt 0 ] || { echo "::error::No signed update installer was built"; exit 1; }
+            files+=("${sigs[@]}")
+          fi
+          gh release upload "$TAG" "${files[@]}" --clobber
+
+  manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Write latest.json for the in-app updater
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(node -p "require('./showcase/tauri/src-tauri/tauri.conf.json').version")
+          TAG="${GITHUB_REF_NAME}"; [[ "$TAG" == v* ]] || TAG="v$VER"
+          mkdir -p sigs && gh release download "$TAG" -p '*.sig' -D sigs
+          # Download links go through the API (the updater asks for the file itself): GitHub's public release links
+          # (github.com/…/releases/download/…) have timed out (504) for hours while the API kept working.
+          gh release view "$TAG" --json assets > assets.json
+          VER="$VER" node -e '
+            const fs = require("fs"), { VER } = process.env;
+            const sig = (f) => fs.readFileSync("sigs/" + f, "utf8").trim();
+            const api = Object.fromEntries(JSON.parse(fs.readFileSync("assets.json", "utf8")).assets.map((a) => [a.name, a.apiUrl]));
+            const link = (f) => { if (!api[f]) throw new Error(`${f} is not on the release`); return api[f]; };
+            const platforms = {
+              "darwin-aarch64": `Roamies_${VER}_aarch64.app.tar.gz`,
+              "darwin-x86_64": `Roamies_${VER}_x64.app.tar.gz`,
+              "windows-x86_64": `Roamies_${VER}_x64-setup.exe`,
+            };
+            // The Linux beta leg may have failed: its AppImage is listed only when it and its signature are there.
+            const linux = `Roamies_${VER}_amd64.AppImage`;
+            if (api[linux] && fs.existsSync("sigs/" + linux + ".sig")) platforms["linux-x86_64"] = linux;
+            else console.log("No Linux AppImage on this release: latest.json leaves Linux out.");
+            const out = { version: VER, notes: `Roamies ${VER}`, pub_date: new Date().toISOString(), platforms: {} };
+            for (const [k, f] of Object.entries(platforms)) out.platforms[k] = { signature: sig(f + ".sig"), url: link(f) };
+            fs.writeFileSync("latest.json", JSON.stringify(out, null, 2));
+          '
+          cat latest.json
+          gh release upload "$TAG" latest.json --clobber

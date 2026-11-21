@@ -1,0 +1,47 @@
+name: Bug report
+description: Something in Roamies isn't working right.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. ...\n2. ...\n3. ..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Roamies version
+      description: Find it in the panel > About.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and version
+      placeholder: e.g. macOS 26.1, Windows 11 24H2
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: AI provider and model
+      placeholder: e.g. Claude (Sonnet), ChatGPT, Gemini API key
+  - type: textarea
+    id: logs
+    attributes:
+      label: Diagnostics file
+      description: In Roamies, open the panel > About > Save diagnostics (or the tray icon's menu > Save Diagnostics…). It saves a roamies-diagnostics-….log file in Downloads with keys and personal details removed. Drag that file into this box.

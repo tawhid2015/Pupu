@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Roamies on the desktop</title>
+<style>
+  /* Bubble and research-card text (the setup guide's body font). */
+  @font-face { font-family: "Martian Mono"; src: url("onboarding/fonts/martian-mono.woff2") format("woff2"); font-weight: 100 800; font-display: swap; }
+  /* Arabic (Readex Pro): the letters of an Arabic reply, which Martian Mono has none of. */
+  @font-face {
+    font-family: "Roamies Arabic";
+    src: url("onboarding/fonts/readex-pro-arabic.woff2") format("woff2");
+    font-weight: 160 700;
+    font-display: swap;
+    /* Arabic letters only: the Latin side of every stack stays Martian Mono, spaces and all. */
+    unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF, U+200C-200F, U+2010-2011, U+204F;
+  }
+  @font-face {
+    font-family: "Roamies Arabic RTL";
+    src: url("onboarding/fonts/readex-pro-arabic.woff2") format("woff2");
+    font-weight: 160 700;
+    font-display: swap;
+    /* The same file, also taking the space and common punctuation: first in the stack of right-to-left text only, so Arabic
+       words and their ! . , ? sit a normal distance apart instead of a full monospace cell. */
+    unicode-range: U+0020-0021, U+0028-0029, U+002C-002E, U+003A-003B, U+003F, U+00A0, U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF, U+200C-200F, U+2010-2011, U+204F;
+  }
+  /* Bengali (Noto Sans Bengali): Martian Mono has no Bengali letters, and the macOS fallback shaped them badly. */
+  @font-face {
+    font-family: "Roamies Bengali";
+    src: url("onboarding/fonts/NotoSansBengali-Regular.ttf") format("truetype");
+    font-weight: 100 900;
+    font-display: swap;
+    unicode-range: U+0980-09FF, U+200C-200D;
+  }
+/* Headings on drawn cards and tickets. */
+  @font-face { font-family: "Doto"; src: url("onboarding/fonts/doto.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  /* Sized and moved by core.js to cover just what's drawn. */
+  canvas { position: fixed; left: 0; top: 0; display: block; cursor: grab; touch-action: none; transform-origin: 0 0; will-change: transform;
+    /* Never selectable: a stray triple-click or Select All tints a selected canvas solid grey over its whole box. */
+    -webkit-user-select: none; user-select: none; }
+  canvas:active { cursor: grabbing; }
+</style>
+</head>
+<body>
+<canvas id="stage" aria-label="Roamies roaming the desktop"></canvas>
+<script src="roamies/core.js"></script>
+<script src="roamies/markdown.js"></script>
+<script src="roamies/sfx.js"></script>
+<script src="roamies/voice-out.js"></script>
+<script src="roamies/glass.js"></script>
+<script src="roamies/minis.js"></script>
+<script src="roamies/agent-home.js"></script>
+<script src="roamies/agent.js"></script>
+<script src="roamies/agent-tools.js"></script>
+<script src="roamies/agent-cards.js"></script>
+<script src="roamies/agent-panel.js"></script>
+<script src="roamies/jarvis.js"></script>
+<script src="roamies/people.js"></script>
+<script src="roamies/10-dither.js"></script>
+<script src="roamies/12-sidekick.js"></script>
+<script>Roamie.bootDesktop(document.getElementById("stage")); document.fonts.load('500 13px "Martian Mono"'); document.fonts.load('500 13px "Roamies Arabic"', 'م'); document.fonts.load('500 13px "Roamies Bengali"', 'ব'); document.fonts.load('500 13px "Roamies Arabic RTL"', 'م ');</script>
+<script src="roamies/ink3d.js"></script>
+<script src="roamies/world.js"></script>
+<script src="roamies/ink.js"></script>
+<script src="roamies/sidebar.js"></script>
+<script src="roamies/pen.js"></script>
+<script>document.fonts.load('800 16px "Doto"');</script>
+<script src="roamies/ask-bar.js"></script>
+<script src="roamies/notch.js"></script>
+<script src="roamies/host.js"></script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pupu</title>
+<link rel="stylesheet" href="../onboarding/onboarding.css">
+<link rel="stylesheet" href="panel.css">
+</head>
+<body>
+<div class="frame shut" id="frame">
+<header class="head">
+  <!-- The Roamie itself, in its current look: it reacts to what's going on (decorative; the status line says it). -->
+  <canvas class="avatar" id="avatar" aria-hidden="true"></canvas>
+  <div class="head-text">
+    <div class="who">
+      <span class="led" id="led" aria-hidden="true"></span>
+      <h1 id="title">Pupu</h1>
+      <span class="ver" id="ver"></span>
+      <!-- Updates, on every page: Check for updates, then Update to x (it installs and restarts), then Done. -->
+      <button class="px btn ghost mini" type="button" id="head-update" hidden></button>
+      <!-- Quit, at the end of the row: the first press turns it into Confirm for a few seconds. -->
+      <button class="link danger arm head-quit" type="button" id="head-quit" aria-pressed="false" aria-label="Quit Pupu"><span class="no" aria-hidden="true">Quit</span><span class="yes" aria-hidden="true">Confirm</span></button>
+    </div>
+    <p class="by" id="by">By Tawhid</p>
+    <!-- What it's doing and the model, for screen readers; on screen the LED shows it. -->
+    <p class="sr-only" id="now" role="status" aria-live="polite"></p>
+    <p class="saying" id="saying" aria-hidden="true"></p>
+  </div>
+</header>
+
+<div class="split">
+  <!-- One page per concern: what's going on, what it remembers, then a page for each group of settings. -->
+  <nav class="side" aria-label="Panel">
+    <ul class="nav">
+      <li><button class="px navi" type="button" id="nav-home" data-page="home" aria-controls="pane-home" aria-current="page">Home<span class="dot" aria-hidden="true"></span></button></li>
+      <li><button class="px navi" type="button" id="nav-memory" data-page="memory" aria-controls="pane-memory">Memory<span class="dot" aria-hidden="true"></span></button></li>
+      <li><button class="px navi" type="button" id="nav-abilities" data-page="abilities" aria-controls="pane-abilities">Abilities<span class="dot" aria-hidden="true"></span></button></li>
+      <li><button class="px navi" type="button" id="nav-model" data-page="model" aria-controls="pane-model">Model<span class="dot" aria-hidden="true"></span></button></li>
+      <li><button class="px navi" type="button" id="nav-appearance" data-page="appearance" aria-controls="pane-appearance">Appearance<span class="dot" aria-hidden="true"></span></button></li>
+      <li><button class="px navi" type="button" id="nav-speaking" data-page="speaking" aria-controls="pane-speaking">Speaking<span class="dot" aria-hidden="true"></span></button></li>
+      <li><button class="px navi" type="button" id="nav-listening" data-page="listening" aria-controls="pane-listening">Listening<span class="dot" aria-hidden="true"></span></button></li>
+      <li><button class="px navi" type="button" id="nav-shortcuts" data-page="shortcuts" aria-controls="pane-shortcuts">Shortcuts<span class="dot" aria-hidden="true"></span></button></li>
+      <li><button class="px navi" type="button" id="nav-general" data-page="general" aria-controls="pane-general">General<span class="dot" aria-hidden="true"></span></button></li>
+      <li><button class="px navi" type="button" id="nav-about" data-page="about" aria-controls="pane-about">About<span class="dot" aria-hidden="true"></span></button></li>
+      <li><button class="px navi" type="button" id="nav-whatsnew" data-page="whatsnew" aria-controls="pane-whatsnew">What's new<span class="dot" aria-hidden="true"></span></button></li>
+    </ul>
+  </nav>
+  <main class="body">
+    <section class="pane" id="pane-home" aria-labelledby="nav-home"></section>
+    <section class="pane" id="pane-memory" aria-labelledby="nav-memory" hidden></section>
+    <section class="pane" id="pane-abilities" aria-labelledby="nav-abilities" hidden></section>
+    <section class="pane" id="pane-model" aria-labelledby="nav-model" hidden></section>
+    <section class="pane" id="pane-appearance" aria-labelledby="nav-appearance" hidden></section>
+    <section class="pane" id="pane-speaking" aria-labelledby="nav-speaking" hidden></section>
+    <section class="pane" id="pane-listening" aria-labelledby="nav-listening" hidden></section>
+    <section class="pane" id="pane-shortcuts" aria-labelledby="nav-shortcuts" hidden></section>
+    <section class="pane" id="pane-general" aria-labelledby="nav-general" hidden></section>
+    <section class="pane" id="pane-about" aria-labelledby="nav-about" hidden></section>
+    <section class="pane" id="pane-whatsnew" aria-labelledby="nav-whatsnew" hidden></section>
+  </main>
+</div>
+<p class="note" id="note" role="status" aria-live="polite" hidden></p>
+<!-- Tooltip: what a choice is for and what it costs. The same text is each option's description for screen readers. -->
+<div class="px tip" id="tip" aria-hidden="true" hidden></div>
+
+</div>
+<script src="../roamies/core.js"></script>
+<script src="../roamies/jarvis.js"></script>
+<script src="../roamies/people.js"></script>
+<script src="../roamies/10-dither.js"></script>
+<script src="panel.js"></script>
+</body>
+</html>

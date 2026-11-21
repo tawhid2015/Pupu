@@ -1,0 +1,347 @@
+{
+  "updates": [
+    {
+      "version": "0.1.44",
+      "date": "2026-11-19",
+      "items": [
+        { "kind": "fixed", "title": "Maths said right", "text": "When I speak, 3² is \"3 squared\" and ÷ is \"divided by\", and √ is \"the square root of\"." }
+      ]
+    },
+    {
+      "version": "0.1.43",
+      "date": "2026-11-19",
+      "items": [
+        { "kind": "new", "title": "Wake word on Windows and Linux", "text": "Say \"Hey Roamies\" to talk, no keys needed. Turn it on in Listening, Hands-free." },
+        { "kind": "new", "title": "Lists you can tick", "text": "Lists I draw are checklists now. Tick, add and edit items, and I see what changed." },
+        { "kind": "new", "title": "The capsule everywhere", "text": "Pick Capsule in Where I appear and I open from the top of the screen, on any computer." },
+        { "kind": "improved", "title": "Cards stay when asked", "text": "Ask me to keep a card up and my next drawing leaves it there." },
+        { "kind": "fixed", "title": "Clear local model errors", "text": "When a model on your computer doesn't load, I say so instead of blaming the internet." },
+        { "kind": "fixed", "title": "Quiet when hidden", "text": "Hiding me while I'm talking now stops my voice too." },
+        { "kind": "improved", "title": "One Abilities page", "text": "Skills, connections and routines now share one page, with a tab each." },
+        { "kind": "improved", "title": "Full descriptions", "text": "Long descriptions wrap onto more lines instead of getting cut off." },
+        { "kind": "fixed", "title": "Smoother removing", "text": "Removing something no longer flickers. It fades out and the list closes up." },
+        { "kind": "fixed", "title": "Buttons work first time", "text": "Buttons that pop up under your mouse now take the first click." }
+      ]
+    },
+    {
+      "version": "0.1.43",
+      "date": "2026-11-18",
+      "items": [
+        { "kind": "new", "title": "Scheduled jobs", "text": "Ask me to do work at set times, like a news summary every weekday at 8." },
+        { "kind": "new", "title": "Skills", "text": "Give me a skill's GitHub or skills.sh link to install it, or teach me one yourself." },
+        { "kind": "new", "title": "Connections", "text": "Ask me to connect Linear, Notion and more. I find the server and ask first." },
+        { "kind": "improved", "title": "One Roamies folder", "text": "Your settings, memory and chats now sit in the Roamies folder in your home folder." }
+      ]
+    },
+    {
+      "version": "0.1.42",
+      "date": "2026-11-18",
+      "items": [
+        { "kind": "new", "title": "Meet Ultren", "text": "A chrome machine with glowing eyes and a grand, dark wit. Try him in Appearance." },
+        { "kind": "new", "title": "Meet GlayOS", "text": "A one-eyed lab AI. Deadpan, clinical, and every task is a test." },
+        { "kind": "new", "title": "My face feels it", "text": "My face follows my voice: a grin when I'm glad, a frown when I'm sad." },
+        { "kind": "new", "title": "Each look talks its way", "text": "Every look has its own way of talking now, not just its own voice." },
+        { "kind": "new", "title": "Subagents", "text": "A crew of specialists I hand background work to. Thanks ihabfawaqa-hue!" },
+        { "kind": "new", "title": "Hybrid and backup models", "text": "Mix models, switch when one hits a limit, set effort per model. Thanks ihabfawaqa-hue!" },
+        { "kind": "new", "title": "Speak in", "text": "Pick the language you talk in, so I hear Arabic and Hebrew. Thanks ihabfawaqa-hue!" },
+        { "kind": "improved", "title": "Arabic replies", "text": "Arabic shows in a matching font, right to left, everywhere. Thanks ihabfawaqa-hue!" },
+        { "kind": "improved", "title": "Agents hear you", "text": "Agents get your exact words, not just my reading of them. Thanks ihabfawaqa-hue!" },
+        { "kind": "improved", "title": "Quicker VoiceStudio", "text": "It stays warm, starts sooner and keeps spoken replies short. Thanks ihabfawaqa-hue!" },
+        { "kind": "improved", "title": "Tidier settings", "text": "Model, Listening, Memory and Appearance now have tabs." },
+        { "kind": "improved", "title": "Speech model help", "text": "I point you to Listening when the speech model needs a download. Thanks mattschwarz!" },
+        { "kind": "fixed", "title": "Mic closes properly", "text": "The mic no longer stays open after a quick release. Thanks mattschwarz!" },
+        { "kind": "fixed", "title": "Claude after updates", "text": "With Claude sign-in, I get the Claude Code I need after updates. Thanks mattschwarz!" },
+        { "kind": "fixed", "title": "Your model stays picked", "text": "I keep the model you picked instead of going back. Thanks JavierOIayo!" }
+      ]
+    },
+    {
+      "version": "0.1.41",
+      "date": "2026-11-17",
+      "items": [
+        { "kind": "new", "title": "Out of the notch", "text": "On a Mac with a notch, I can come out of it. See Where I appear. Thanks ihabfawaqa-hue!" },
+        { "kind": "new", "title": "Lite mode", "text": "A lighter me for small or local models, on the Model page. Thanks Hasnainbro!" },
+        { "kind": "new", "title": "Keep listening", "text": "The mic can open after every reply, for as long as you like. Thanks linuxlesslearner!" },
+        { "kind": "new", "title": "Skip Allow prompts", "text": "I can go ahead without asking. Safety rules still apply. Thanks ihabfawaqa-hue!" },
+        { "kind": "improved", "title": "Replies start sooner", "text": "I get my voice ready while you're still talking. Thanks ihabfawaqa-hue!" },
+        { "kind": "improved", "title": "Arabic and Hebrew", "text": "Right to left text now reads the right way. Thanks a8548363-hub!" },
+        { "kind": "improved", "title": "Picking a model", "text": "Setup now explains why I need a sharp model, and which cheap ones work well." },
+        { "kind": "fixed", "title": "Gemini voice errors", "text": "When Gemini can't speak, I say why, and new keys get tested first. Thanks rajivyshah!" },
+        { "kind": "fixed", "title": "Smooth voice on Linux", "text": "Spoken replies no longer play in broken pieces on Linux. Thanks namedtwilit!" },
+        { "kind": "fixed", "title": "No white bar on Windows", "text": "The thin bar at the bottom of the screen on Windows is gone. Thanks Iceman1Freeze!" },
+        { "kind": "fixed", "title": "Opening apps on Windows", "text": "I open more apps and Settings on Windows, and draw more. Thanks walk7heaven37-svg!" },
+        { "kind": "fixed", "title": "I stay for the whole answer", "text": "I no longer vanish while I'm still talking or showing you. Thanks ihabfawaqa-hue!" },
+        { "kind": "new", "title": "Deep explanations", "text": "Ask me to explain something in depth: big cards, one step at a time. Thanks LeoU29935!" },
+        { "kind": "new", "title": "Game mode", "text": "In fullscreen games I move to a panel at the screen's edge. Thanks LeoU29935!" },
+        { "kind": "fixed", "title": "On top on COSMIC", "text": "On COSMIC I now stay on top of your apps, without the dark box. Thanks Swall-wg!" }
+      ]
+    },
+    {
+      "version": "0.1.40",
+      "date": "2026-11-15",
+      "items": [
+        { "kind": "new", "title": "More local servers", "text": "Run me on LM Studio or any OpenAI compatible server, not just Ollama." },
+        { "kind": "new", "title": "Pick your microphone", "text": "Choose which mic I listen on, or leave it on automatic." },
+        { "kind": "new", "title": "Change your shortcuts", "text": "A new Shortcuts page lets you change your talk keys and other shortcuts anytime." },
+        { "kind": "new", "title": "Turn off the ask tap", "text": "The quick tap to type a question can be switched off if another app uses it." },
+        { "kind": "improved", "title": "Tidier settings", "text": "Voice and Behavior are now Speaking, Listening, Shortcuts, Routines and General." },
+        { "kind": "improved", "title": "Every OpenRouter model", "text": "I now list all OpenRouter and OpenCode models, not just a handful." },
+        { "kind": "improved", "title": "Qwen points in the right spot", "text": "Local Qwen models now point at the right place on your screen." },
+        { "kind": "improved", "title": "Only models that can see", "text": "Models that can't see your screen no longer show up in the model list." },
+        { "kind": "fixed", "title": "Background noise", "text": "A fan or TV could keep me listening for a whole minute. Not anymore. Thanks JavierOIayo!" },
+        { "kind": "fixed", "title": "Installs next to Node on Linux", "text": "On Linux, installing me failed if you already had Node. Fixed. Thanks namedtwilit!" },
+        { "kind": "fixed", "title": "Esc works again on Linux", "text": "On Linux, Esc could stop working in other apps after using me. Thanks namedtwilit!" }
+      ]
+    },
+    {
+      "version": "0.1.39",
+      "date": "2026-11-14",
+      "items": [
+        { "kind": "new", "title": "Mind map cards", "text": "Ask me for a mind map, then click a branch to open its points. Thanks LeoU29935!" },
+        { "kind": "new", "title": "Moving arrows", "text": "Arrows and flow charts can show moving dots for things that travel. Thanks LeoU29935!" },
+        { "kind": "new", "title": "Save a card as a picture", "text": "A new button on each card saves it as an image in Downloads. Thanks LeoU29935!" },
+        { "kind": "new", "title": "Your own wake word", "text": "On a Mac, wake me with your own name for me, like Hey Jarvis. Thanks LeoU29935!" },
+        { "kind": "new", "title": "Snooze by voice", "text": "When a reminder goes off, just say snooze 10 minutes. Thanks LeoU29935!" },
+        { "kind": "new", "title": "Morning briefing", "text": "The first time you talk each day, I can start with what's due. Thanks LeoU29935!" },
+        { "kind": "new", "title": "Focus mode", "text": "Say focus for 30 minutes and I'll nudge you if you drift off. Thanks LeoU29935!" },
+        { "kind": "new", "title": "Sync between computers", "text": "Share reminders and memory through iCloud or OneDrive, encrypted. Thanks LeoU29935!" },
+        { "kind": "new", "title": "Stays out of your games", "text": "In a fullscreen game, I move your Roamie aside and every click goes to the game." },
+        { "kind": "improved", "title": "Cards open at the right size", "text": "I now open a card small, large or full screen to fit what I show. Thanks LeoU29935!" },
+        { "kind": "improved", "title": "Works over fullscreen apps", "text": "On a Mac, your Roamie now shows up over fullscreen apps and games instead of hiding." },
+        { "kind": "improved", "title": "Full setting descriptions", "text": "Some setting descriptions got cut off. Point at one and you'll see the whole thing." },
+        { "kind": "fixed", "title": "Wake word works with AirPods", "text": "With AirPods in, the wake word kept cutting into your audio. Fixed. Thanks MASEGE!" },
+        { "kind": "fixed", "title": "It knows you're waking it", "text": "Saying Hey Roamies sometimes made me think you'd called me the wrong name. Not anymore." },
+        { "kind": "fixed", "title": "No more sound blip", "text": "After I answered a wake word request, your sound dipped for a moment. Not anymore." },
+        { "kind": "fixed", "title": "Wake word after Esc", "text": "After you cancelled with Esc, the wake word could stop hearing you for minutes. Fixed." },
+        { "kind": "fixed", "title": "Listening pill is back", "text": "After a display change, the listening pill could stop showing. Thanks mattschwarz!" }
+      ]
+    },
+    {
+      "version": "0.1.38",
+      "date": "2026-11-13",
+      "items": [
+        { "kind": "fixed", "title": "Talk in your language", "text": "Mac voice input was stuck in English. Now it uses your language. Thanks eduardocodes!" },
+        { "kind": "fixed", "title": "Typing works on Linux", "text": "On KDE, the ask box often ignored typing after you used another app. Thanks Cluttero!" }
+      ]
+    },
+    {
+      "version": "0.1.37",
+      "date": "2026-11-13",
+      "items": [
+        { "kind": "new", "title": "Send an agent", "text": "Say \"send an agent to…\" and a helper does the job in the background while you work." },
+        { "kind": "new", "title": "See what agents made", "text": "When an agent's done, its files pop up in the corner. Click one to open it." },
+        { "kind": "new", "title": "What's new", "text": "This page! After each update I'll show you what changed, right here." },
+        { "kind": "new", "title": "OpenCode keys", "text": "Got OpenCode Go or OpenCode credits? Add your key on the Model page and use it." },
+        { "kind": "improved", "title": "Better web reading", "text": "I upgraded how Roamies searches the web and reads pages, so answers are cleaner." },
+        { "kind": "new", "title": "Pin a card", "text": "Click the pin on a card and it stays put until you close it, even when you switch apps." },
+        { "kind": "new", "title": "Resize cards", "text": "Drag a card's corner to make it bigger or smaller, or blow it up to full screen." },
+        { "kind": "fixed", "title": "First click works", "text": "Clicking Allow or the panel while another app was in front did nothing. Now it works." },
+        { "kind": "fixed", "title": "Roamie shows up after sleep", "text": "If Roamies started while your screen slept, the Roamie never appeared. Fixed that." },
+        { "kind": "improved", "title": "Follows your screens", "text": "Plug in or unplug a screen and your Roamie moves over to where your screens are now." },
+        { "kind": "fixed", "title": "Talk key misfires", "text": "Holding the talk keys was sometimes taken for a shortcut. Talking works reliably now." },
+        { "kind": "fixed", "title": "Buttons no longer hidden", "text": "The little task label could cover Allow and Don't allow. It moves out of the way now." },
+        { "kind": "fixed", "title": "Commands on Windows", "text": "On Windows, commands with quotes in them failed. They run properly now." }
+      ]
+    },
+    {
+      "version": "0.1.36",
+      "date": "2026-11-13",
+      "items": [
+        { "kind": "fixed", "title": "Tooltips fit the panel again", "text": "I shrank the help popups in the panel so they stop covering everything." },
+        { "kind": "fixed", "title": "No more stray Claude processes", "text": "If Roamies crashed, Claude Code kept running in the background. I close it properly now." },
+        { "kind": "fixed", "title": "Logs don't grow forever", "text": "The helper logs kept getting bigger. I trim them now so they don't hog your disk." },
+        { "kind": "fixed", "title": "Old snaps get cleaned up", "text": "I made Roamies delete the area snaps you send once it's done with them." }
+      ]
+    },
+    {
+      "version": "0.1.35",
+      "date": "2026-11-12",
+      "items": [
+        { "kind": "new", "title": "Gemini voices", "text": "I added Google's Gemini voices for your Roamie to talk with. Pick one in Voice." },
+        { "kind": "new", "title": "VoiceStudio voices", "text": "Got the VoiceStudio app? Roamies can now use its voices, right on your computer." },
+        { "kind": "new", "title": "Meet Rita X", "text": "I added a new look called Rita X. Try her out in Appearance." },
+        { "kind": "fixed", "title": "Windows 11 tray icon stays put", "text": "Windows 11 kept hiding the icon. I pin it next to the clock now." }
+      ]
+    },
+    {
+      "version": "0.1.35",
+      "date": "2026-11-12",
+      "items": [
+        { "kind": "fixed", "title": "Change or remove your keys", "text": "Every account now has Change key and Remove, so you're never stuck with an old key." }
+      ]
+    },
+    {
+      "version": "0.1.35",
+      "date": "2026-11-12",
+      "items": [
+        { "kind": "new", "title": "Local models with Ollama", "text": "I added Ollama (beta), so Roamies can run on AI models on your own computer." },
+        { "kind": "fixed", "title": "Errors instead of crashes", "text": "When a request failed, Roamies used to crash. Now it just tells you what went wrong." },
+        { "kind": "improved", "title": "Quicker, cheaper replies", "text": "I trimmed Roamies' instructions, so it thinks a bit faster and costs a bit less." }
+      ]
+    },
+    {
+      "version": "0.1.35",
+      "date": "2026-11-12",
+      "items": [
+        { "kind": "new", "title": "Repeating reminders", "text": "Ask for a reminder every day, week or month and Roamies keeps it going." }
+      ]
+    },
+    {
+      "version": "0.1.35",
+      "date": "2026-11-12",
+      "items": [
+        { "kind": "fixed", "title": "Typing in Notepad works again", "text": "On Windows 11, typing in Notepad came out scrambled. I fixed it, emoji included." }
+      ]
+    },
+    {
+      "version": "0.1.35",
+      "date": "2026-11-12",
+      "items": [
+        { "kind": "new", "title": "Just say \"Hey Roamies\"", "text": "On a Mac you can now wake your Roamie with your voice. No keys needed." },
+        { "kind": "improved", "title": "Errors in plain English", "text": "I rewrote the error messages so they make sense, with a short code if you need help." }
+      ]
+    },
+    {
+      "version": "0.1.35",
+      "date": "2026-11-11",
+      "items": [
+        { "kind": "new", "title": "Type to ask", "text": "Tap ⌥⌘ (Ctrl+Shift on PC) and a text box pops up by your cursor. You can pick the keys." }
+      ]
+    },
+    {
+      "version": "0.1.34",
+      "date": "2026-11-11",
+      "items": [
+        { "kind": "new", "title": "Explanations you can see", "text": "Ask how something works and Roamies draws it: flows, tables, charts, maps and maths." },
+        { "kind": "new", "title": "Quizzes and 3D models", "text": "It can quiz you, label photos and show moving parts in 3D, like an engine." }
+      ]
+    },
+    {
+      "version": "0.1.34",
+      "date": "2026-11-11",
+      "items": [
+        { "kind": "new", "title": "Save diagnostics", "text": "Something broken? Hit Save diagnostics in About and send me the file." },
+        { "kind": "improved", "title": "Clearer mic errors", "text": "When the mic isn't working, Roamies now says why and how to fix it." },
+        { "kind": "improved", "title": "A tidier panel", "text": "I split long lists into pages, put updates up top and added a Quit button." }
+      ]
+    },
+    {
+      "version": "0.1.33",
+      "date": "2026-11-10",
+      "items": [
+        { "kind": "new", "title": "Roamies on Linux (beta)", "text": "I brought Roamies to Linux, voice and all. It works on X11 and Wayland." }
+      ]
+    },
+    {
+      "version": "0.1.32",
+      "date": "2026-11-10",
+      "items": [
+        { "kind": "new", "title": "Watch it work", "text": "Your Roamie now hops along with the cursor while it works in other apps." },
+        { "kind": "new", "title": "Allow buttons", "text": "Before Roamies does something risky, you get Allow and Don't allow buttons." },
+        { "kind": "new", "title": "Keep talking, hands-free", "text": "After a reply, Roamies keeps listening for a moment so you can just carry on." },
+        { "kind": "fixed", "title": "Esc clears drawings", "text": "Pressing Esc with drawings on screen now does what you'd expect." },
+        { "kind": "fixed", "title": "Keys go to the right app", "text": "Keys Roamies presses no longer land in some other app by mistake." },
+        { "kind": "fixed", "title": "Window outlines line up", "text": "The frame Roamies draws around a window now sits right on its edges." }
+      ]
+    },
+    {
+      "version": "0.1.32",
+      "date": "2026-11-09",
+      "items": [
+        { "kind": "fixed", "title": "Panel opens at full size", "text": "On Macs with mixed screens the panel opened half size or on the wrong screen. Fixed." }
+      ]
+    },
+    {
+      "version": "0.1.31",
+      "date": "2026-11-09",
+      "items": [
+        { "kind": "fixed", "title": "No more silent stalls", "text": "Sometimes Roamies just went quiet. I found the cause and fixed it." },
+        { "kind": "fixed", "title": "Chats survive updates", "text": "Your chats and Get to Know Me answers no longer vanish after an update." },
+        { "kind": "fixed", "title": "Typing cursor is back", "text": "The blinking cursor in text boxes was hidden. You can see it again." },
+        { "kind": "new", "title": "Updates in the panel", "text": "When an update is ready, you'll see it at the top of the panel." }
+      ]
+    },
+    {
+      "version": "0.1.30",
+      "date": "2026-11-09",
+      "items": [
+        { "kind": "new", "title": "Windows catches up", "text": "On Windows, Roamies can now click and type for you, snap an area and circle things." }
+      ]
+    },
+    {
+      "version": "0.1.29",
+      "date": "2026-11-09",
+      "items": [
+        { "kind": "fixed", "title": "Saving temp files on Windows", "text": "A safety check wrongly blocked saving temp files on Windows. Fixed." }
+      ]
+    },
+    {
+      "version": "0.1.29",
+      "date": "2026-11-08",
+      "items": [
+        { "kind": "improved", "title": "Sharper pointing", "text": "Rings now fit what's on screen exactly, and Roamies finds even single letters." },
+        { "kind": "improved", "title": "Marks every match", "text": "Ask where something is and Roamies marks every spot it shows up, not just one." }
+      ]
+    },
+    {
+      "version": "0.1.29",
+      "date": "2026-11-08",
+      "items": [
+        { "kind": "fixed", "title": "Tighter safety checks", "text": "I closed a few gaps where risky commands could slip past the safety checks." },
+        { "kind": "improved", "title": "Bounces back from crashes", "text": "If Roamies' brain crashes, it restarts by itself now." },
+        { "kind": "improved", "title": "Trusted Mac install", "text": "The Mac download is notarized by Apple now, so it opens cleanly. Needs macOS 13.5+." },
+        { "kind": "new", "title": "Privacy notice", "text": "I wrote down exactly what Roamies does with your data. Short version: I collect nothing." }
+      ]
+    },
+    {
+      "version": "0.1.28",
+      "date": "2026-11-08",
+      "items": [
+        { "kind": "fixed", "title": "Steps said once, not twice", "text": "Guided steps were sometimes read out twice. Now you hear each one once." }
+      ]
+    },
+    {
+      "version": "0.1.27",
+      "date": "2026-11-08",
+      "items": [
+        { "kind": "fixed", "title": "Updates download reliably", "text": "Updates failed when GitHub was slow. I added a backup route so they come through." }
+      ]
+    },
+    {
+      "version": "0.1.25",
+      "date": "2026-11-08",
+      "items": [
+        { "kind": "fixed", "title": "No more reading out code", "text": "After a restart, Roamies sometimes read its own tool calls aloud. Not anymore." },
+        { "kind": "fixed", "title": "Web answers in the right spot", "text": "Web answer cards open where the drawn cards go, and don't scroll sideways." }
+      ]
+    },
+    {
+      "version": "0.1.24",
+      "date": "2026-11-08",
+      "items": [
+        { "kind": "fixed", "title": "Drawings clear on new pages", "text": "Drawings stuck around when a page was slow to read. They clear properly now." }
+      ]
+    },
+    {
+      "version": "0.1.23",
+      "date": "2026-11-08",
+      "items": [
+        { "kind": "fixed", "title": "Drawings follow the screen", "text": "When the page changes under a drawing, Roamies wipes it, in any app." }
+      ]
+    },
+    {
+      "version": "0.1.22",
+      "date": "2026-11-08",
+      "items": [
+        { "kind": "improved", "title": "Replies start sooner", "text": "I cut the wait before Roamies starts talking, and gave each voice more variety." },
+        { "kind": "improved", "title": "Photo cards fit", "text": "Photo cards now size themselves to the picture." }
+      ]
+    },
+    {
+      "version": "0.1.22",
+      "date": "2026-11-08",
+      "items": [
+        { "kind": "fixed", "title": "Stop really stops", "text": "After you hit Stop, leftover tool labels no longer hang around." }
+      ]
+    }
+  ]
+}
