@@ -201,7 +201,7 @@ export class BuiltinVoice {
 
   say(text) {
     if (this.state === 'done' || this.ending) return;
-    const t = String(text ?? '').replace(/\[[^\]]*\]/g, ' ').replace(/\s+/g, ' ').trim();
+    const t = String(text ?? '').normalize('NFC').replace(/\[[^\]]*\]/g, ' ').replace(/\s+/g, ' ').trim();
     if (!t) return;
     if (this.state === 'new') this.open();
     this.queue.push({ i: this.seq++, text: t });
@@ -232,10 +232,14 @@ export class BuiltinVoice {
     const t0 = Date.now();
     say('say start', { index: item.i, chars: item.text.length });
     try {
-      const r = await this.postImpl('/say', { text: item.text, voice: this.voice, lang: this.lang || language });
+      const hasBn = /[\u0980-\u09FF]/.test(item.text);
+      const isBn = hasBn || (this.lang === 'bn') || (language === 'bn');
+      const itemLang = isBn ? 'bn' : (this.lang || language);
+      const itemVoice = isBn ? 'bengali' : (this.voice || 'jarvis');
+      const r = await this.postImpl('/say', { text: item.text, voice: itemVoice, lang: itemLang });
       const pcm = new Uint8Array(await r.arrayBuffer());
       const rate = Number(r.headers.get('x-sample-rate')) || RATE;
-      say('say done', { index: item.i, ms: Date.now() - t0, seconds: +(pcm.length / 2 / rate).toFixed(2) });
+      say('say done', { index: item.i, ms: Date.now() - t0, seconds: +(pcm.length / 2 / rate).toFixed(2), lang: itemLang, voice: itemVoice });
       if (this.state !== 'done') this.ready.set(item.i, { pcm, rate });
     } catch (e) {
       if (this.state !== 'done') this.fail(/timeout|aborted/i.test(e.message) ? 'timeout' : 'error', e.message);

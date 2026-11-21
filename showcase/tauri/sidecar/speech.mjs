@@ -133,7 +133,7 @@ function mathWords(s) {
 }
 
 export function speakable(text) {
-  let s = String(text ?? '');
+  let s = String(text ?? '').normalize('NFC');
   s = s.replace(/\[([^\]]*)\]\((?:https?:|mailto:)[^)]*\)/g, '$1') // [name](url) → name
     .replace(/<?\b(?:https?:\/\/|www\.)\S+/gi, (u) => u.match(/[.,!?;:)>]*$/)[0].replace(/>/g, '')) // bare URLs (keep the full stop)
     .replace(/`([^`]*)`/g, (_, c) => (c.length > 24 || /[/\\{}();=<>]|^\S+\.[a-z0-9]{1,5}$/i.test(c) ? '' : c)) // code: short words only
@@ -141,9 +141,9 @@ export function speakable(text) {
     .replace(/(?:^|\s)(?:~|\/)?(?:[\w.-]+\/){2,}[\w-]*(?:\.\w+)*/g, ' ') // file paths (the sentence's full stop stays)
     .replace(/\[([^\]]{1,40})\]/g, (m, inner, at, all) => (IS_CUE.test(m) || (LOOSE.test(m) && SENTENCE_START.test(all.slice(0, at))) ? m.toLowerCase() : inner)) // voice cues stay; [placeholders] lose their brackets (Fish would act them out)
     .replace(/[\s\S]+/, mathWords)
-    .replace(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{FE0F}\u{200D}\u{20E3}]/gu, '')
+    .replace(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{FE0F}\u{20E3}]/gu, '')
     .replace(/\(\s*\)|\[\s*\]/g, '')
-    .replace(/\s+([,.!?;:])/g, '$1')
+    .replace(/\s+([,.!?;:।॥])/g, '$1')
     .replace(/\s+/g, ' ')
     .trim();
   return /[\p{L}\p{N}]/u.test(s.replace(CUE, '')) ? s : '';
@@ -246,12 +246,18 @@ export class SpeechText {
         let m;
         // Say a sentence as soon as its ending lands. Waiting for the next token held whole replies until the model
         // finished, which is where most of the pause before the voice began came from.
-        if ((m = SENTENCE_END.exec(line))) cut = m.index + m[0].length;
+        if ((m = SENTENCE_END.exec(line))) {
+          cut = m.index + m[0].length;
+          // During streaming, avoid emitting an isolated 1-word fragment (e.g. "Hello." or "হ্যালো!") alone,
+          // which causes speech playback buffer underruns and conversational stalls.
+          if (!all && cut < 14 && (line.slice(0, cut).trim().match(/[\p{L}\p{N}]+/gu) || []).length <= 1) {
+            const nextM = SENTENCE_END.exec(line);
+            if (nextM) cut = nextM.index + nextM[0].length;
+            else if (nl < 0 && line.length < 50) return;
+          }
+        }
         if (cut < 0 && nl >= 0) cut = nl;
         if (cut < 0 && line.length > LONG) { const sp = line.lastIndexOf(', ', LONG); cut = sp > 40 ? sp + 1 : line.lastIndexOf(' ', LONG); }
-        // During streaming, do not cut an isolated single-word fragment (e.g. "Hello.") alone before more tokens arrive,
-        // which would cause speech playback buffer underruns and long conversational stalls.
-        if (!all && nl < 0 && cut > 0 && line.length < 16 && (line.slice(0, cut).trim().match(/[\p{L}\p{N}]+/gu) || []).length <= 1) return;
         if (cut <= 0) {
           if (all) { this.out(this.buf); this.buf = ''; }
           return;

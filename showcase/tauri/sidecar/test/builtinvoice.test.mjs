@@ -57,4 +57,28 @@ const deferred = () => { let resolve; const p = new Promise((r) => { resolve = r
   v.open(); v.say('hello'); v.end(); await tick();
   assert.equal(errors.length, 1); assert.match(errors[0].message, /engine stopped/); assert.equal(errors[0].heard, false);
 }
+{ // Script routing: Bengali text routes to 'bn' and 'bengali' voice even when caller passed 'en'
+  const calls = [];
+  const v = new BuiltinVoice({
+    voice: 'jarvis', lang: 'en',
+    startImpl: async () => 1,
+    postImpl: async (_path, body) => {
+      calls.push(body);
+      return answer('ok');
+    },
+  });
+  v.open();
+  v.say('হ্যালো তৌহিদ! আপনি কেমন আছেন?');
+  v.say('হ্যাঁ, WhatsApp ওপেন করে আমাকে message করুন।');
+  v.say('Hello from Jarvis, everything is ready.');
+  v.end();
+  await tick();
+  assert.equal(calls.length, 3);
+  assert.equal(calls[0].lang, 'bn');
+  assert.equal(calls[0].voice, 'bengali');
+  assert.equal(calls[1].lang, 'bn');
+  assert.equal(calls[1].voice, 'bengali');
+  assert.equal(calls[2].lang, 'en');
+  assert.equal(calls[2].voice, 'jarvis');
+}
 console.log('built-in voice pipeline tests: passed');

@@ -870,7 +870,7 @@ const ENGLISH_LOCK = `\nLANGUAGE LOCK: Write EVERY word in English. Never write 
 // A held-key turn can be answered in the language the helper heard, without changing the saved setting. Typed turns
 // always use config.replyLang, so typing behaves exactly as before.
 let replyLangOverride = null, promptLang = config.replyLang;
-const replyLang = () => (replyLangOverride || (config.replyLang === 'bn' ? 'bn' : config.replyLang === 'en' ? 'en' : 'en'));
+const replyLang = () => (replyLangOverride || (config.replyLang === 'bn' ? 'bn' : config.replyLang === 'en' ? 'en' : 'auto'));
 // A news phrase such as "news everything" changes only this request. The saved setting is never written by a phrase.
 let newsModeOverride = null;
 const activeNewsMode = () => newsMode(newsModeOverride || config.newsMode);
@@ -1930,7 +1930,7 @@ function setStudioVoice(id) {
 const studioState = () => {
   const l = speech.local;
   if (!l) return { checking: true, voice: speech.localVoice };
-  return { ok: !!l.ok, reason: l.reason ?? null, message: l.message ?? null, engine: l.engineName ?? l.engine ?? null, voices: (l.voices ?? []).slice(0, 200).map((v) => ({ id: v.id, name: v.name })), voice: speech.localVoice, lang: config.replyLang === 'bn' ? 'bn' : 'en' };
+  return { ok: !!l.ok, reason: l.reason ?? null, message: l.message ?? null, engine: l.engineName ?? l.engine ?? null, voices: (l.voices ?? []).slice(0, 200).map((v) => ({ id: v.id, name: v.name })), voice: speech.localVoice, lang: config.replyLang || 'en' };
 };
 
 function setGeminiVoice(v) {
@@ -2343,7 +2343,7 @@ function panelState() {
     commitments: openCommitments().map((c) => ({ id: c.id, text: c.text, due: c.due ?? null, when: c.due ? `${fmtWhen(c.due)}${c.repeat ? ` · repeats ${repeatLabel(c.repeat)}` : ''}` : '', overdue: !!(c.due && c.due < Date.now()), repeat: c.repeat ?? null })),
     look: config.look ?? 'classic', looks: LOOKS.map(([id, label]) => [id, label]), name: lookName(),
     size: sizeNow(), sizes: SIZES,
-    replies: VOICE_ON() ? 'voice' : 'text', tts: tts().id, replyLang: config.replyLang === 'bn' ? 'bn' : 'en', newsMode: activeNewsMode(), fixAskStyle: config.fixAskStyle !== false, fishKey: hasVoiceKey('fish'), geminiKey: hasVoiceKey('gemini'),
+    replies: VOICE_ON() ? 'voice' : 'text', tts: tts().id, replyLang: config.replyLang || 'en', newsMode: activeNewsMode(), fixAskStyle: config.fixAskStyle !== false, fishKey: hasVoiceKey('fish'), geminiKey: hasVoiceKey('gemini'),
     fishModel: config.fishModel, fishModels: FISH_CHOICES, fishFree: tts().id === 'fish' && speech.on && speech.model.endsWith('-free'),
     geminiVoice: geminiVoice(), geminiVoices: GEMINI_VOICES, geminiShared: ttsKeys.gemini === 'shared',
     geminiModel: config.geminiModel, geminiModels: GEMINI_CHOICES,

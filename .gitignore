@@ -13,7 +13,12 @@ showcase/tauri/src-tauri/gen/
 
 # Dependencies
 node_modules/
-showcase/tauri/sidecar/voice/
+showcase/tauri/sidecar/voice/chatterbox/runtime/
+showcase/tauri/sidecar/voice/chatterbox/site-packages/
+showcase/tauri/sidecar/voice/chatterbox/models/
+showcase/tauri/sidecar/voice/chatterbox/*.wav
+showcase/tauri/sidecar/voice/chatterbox/voices/*.wav
+showcase/tauri/sidecar/voice/**/__pycache__/
 
 # OS / editor / logs
 .DS_Store
