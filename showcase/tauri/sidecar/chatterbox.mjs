@@ -149,7 +149,7 @@ async function post(p, body, timeout = SAY_TIMEOUT) {
   if (!port) await startEngine();
   const r = await fetch(`http://127.0.0.1:${port}${p}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'connection': 'close' },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeout),
   });
@@ -175,7 +175,7 @@ export class BuiltinVoice {
   // while the current audio plays instead of waiting for its HTTP response to be read first. Audio is emitted in
   // sentence order; nothing about the model, its settings or the samples changes.
   constructor({ voice = null, lang = null, onAudio, onEnd, onError, dir = ENGINE_DIR, log: logger = null,
-    postImpl = post, startImpl = startEngine, maxInflight = 2 } = {}) {
+    postImpl = post, startImpl = startEngine, maxInflight = 3 } = {}) {
     if (logger) log = logger;
     Object.assign(this, { voice, lang, onAudio, onEnd, onError, dir, postImpl, startImpl, maxInflight });
     if (logger) setEngineLog(logger);

@@ -81,4 +81,20 @@ const deferred = () => { let resolve; const p = new Promise((r) => { resolve = r
   assert.equal(calls[2].lang, 'en');
   assert.equal(calls[2].voice, 'jarvis');
 }
+{ // Default maxInflight is 3: three requests go out concurrently so pipeline stays buffered
+  const calls = [], replies = [deferred(), deferred(), deferred(), deferred()];
+  const out = [];
+  const v = new BuiltinVoice({
+    voice: 'bengali', lang: 'bn',
+    startImpl: async () => 1,
+    postImpl: (_path, body) => { calls.push(body.text); return replies[calls.length - 1].p; },
+    onAudio: (pcm, rate) => out.push([new TextDecoder().decode(pcm), rate]),
+  });
+  v.open(); v.say('one'); v.say('two'); v.say('three'); v.say('four'); v.end();
+  await tick();
+  assert.deepEqual(calls, ['one', 'two', 'three'], 'three sentences are pipelined concurrently');
+  replies[0].resolve(answer('ONE', 24000));
+  await tick();
+  assert.deepEqual(calls, ['one', 'two', 'three', 'four'], 'sentence four starts as soon as sentence one resolves');
+}
 console.log('built-in voice pipeline tests: passed');

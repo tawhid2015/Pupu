@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 import wave
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MODELS = os.environ.get("ROAMIES_VOICE_MODELS", os.path.join(HERE, "models"))
@@ -145,8 +145,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
+        self.close_connection = True
 
     def do_GET(self):
         global _last
@@ -203,8 +205,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Sample-Rate", str(SAMPLE_RATE))
         self.send_header("X-Seconds", f"{secs:.2f}")
         self.send_header("Content-Length", str(len(pcm)))
+        self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(pcm)
+        self.close_connection = True
 
 
 def leash():
@@ -245,7 +249,8 @@ def main():
         _log("warm")
     threading.Thread(target=reap, daemon=True).start()
     threading.Thread(target=leash, daemon=True).start()
-    srv = HTTPServer(("127.0.0.1", PORT), Handler)  # one request at a time, in this thread: MLX's GPU stream lives here
+    srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    srv.daemon_threads = True
     _log(f"listening on 127.0.0.1:{srv.server_address[1]}")
     srv.serve_forever()
 
