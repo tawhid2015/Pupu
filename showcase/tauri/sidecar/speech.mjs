@@ -249,6 +249,9 @@ export class SpeechText {
         if ((m = SENTENCE_END.exec(line))) cut = m.index + m[0].length;
         if (cut < 0 && nl >= 0) cut = nl;
         if (cut < 0 && line.length > LONG) { const sp = line.lastIndexOf(', ', LONG); cut = sp > 40 ? sp + 1 : line.lastIndexOf(' ', LONG); }
+        // During streaming, do not cut an isolated single-word fragment (e.g. "Hello.") alone before more tokens arrive,
+        // which would cause speech playback buffer underruns and long conversational stalls.
+        if (!all && nl < 0 && cut > 0 && line.length < 16 && (line.slice(0, cut).trim().match(/[\p{L}\p{N}]+/gu) || []).length <= 1) return;
         if (cut <= 0) {
           if (all) { this.out(this.buf); this.buf = ''; }
           return;

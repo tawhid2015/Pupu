@@ -774,8 +774,8 @@
           act(`replies:${x}`);
         }, 'replies', { text: 'I answer in writing only.', voice: `I say my answers out loud too, in the voice below${hasKey ? '' : `. Needs a ${T} key`}.` }),
         el('p', { className: 'sub', textContent: 'Reply language' }),
-        picks('Reply language', [['en', 'English'], ['bn', 'বাংলা · Bangla']], state.replyLang ?? 'en', (x) => act(`replylang_${x}`), 'replylang',
-          { en: 'I answer in English.', bn: 'I answer in Bangla.' }),
+        picks('Reply language', [['auto', 'Automatic'], ['en', 'English'], ['bn', 'বাংলা · Bangla']], state.replyLang ?? 'en', (x) => act(`replylang_${x}`), 'replylang',
+          { auto: 'Follow the detected conversation language.', en: 'I always answer in English.', bn: 'I always answer in Bangla.' }),
         el('p', { className: 'sub', textContent: 'Voice provider' }),
         picks('Voice provider', Object.entries(TTS_NAMES), tts, (x) => {
           if (x !== 'voicestudio' && !state[`${x}Key`]) { ui.key = x; note(`Add a ${TTS_NAMES[x]} key to hear me talk.`); } // its key field opens with it

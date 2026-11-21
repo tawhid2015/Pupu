@@ -862,19 +862,20 @@ ${facts.length ? `What you know about ${userName}${total > facts.length ? ` (${f
 };
 // Lite mode (#73, lite.mjs): a lighter agent for small and local models.
 const litePrompt = () => liteSystem({ name: lookName(), body: LOOK_BODY[config.look] ?? LOOK_BODY.classic, style: LOOK_STYLE[config.look], user: userName, version: VERSION, panel: PANEL, voice: VOICE_ON() });
-// Bangla is a strict output lock, not a preference: small models otherwise answer an English question in English
-// (especially the short line before a tool call), and the built-in Bangla voice then reads English text back.
+// Bangla and English are strict output locks, not preferences: small models otherwise answer in whichever
+// language they want (especially short lines before tool calls).
 // Put it first and last, so it survives a long system prompt and the model's habit of matching the user's language.
 const BANGLA_LOCK = `\nLANGUAGE LOCK: Write EVERY word in Bengali (Bangla) script, including short progress notes before tool calls. Never write English prose, even if the user writes English. Example: say "আবহাওয়া দেখছি", not "Checking the weather".\n`;
+const ENGLISH_LOCK = `\nLANGUAGE LOCK: Write EVERY word in English. Never write Bengali (Bangla) script, even if the user writes or speaks in Bengali. Always reply in English.\n`;
 // A held-key turn can be answered in the language the helper heard, without changing the saved setting. Typed turns
 // always use config.replyLang, so typing behaves exactly as before.
 let replyLangOverride = null, promptLang = config.replyLang;
-const replyLang = () => (replyLangOverride || (config.replyLang === 'bn' ? 'bn' : 'en'));
+const replyLang = () => (replyLangOverride || (config.replyLang === 'bn' ? 'bn' : config.replyLang === 'en' ? 'en' : 'en'));
 // A news phrase such as "news everything" changes only this request. The saved setting is never written by a phrase.
 let newsModeOverride = null;
 const activeNewsMode = () => newsMode(newsModeOverride || config.newsMode);
 const system = () => {
-  const base = replyLang() === 'bn' ? BANGLA_LOCK + (config.lite ? litePrompt() : stablePrompt()) + BANGLA_LOCK : (config.lite ? litePrompt() : stablePrompt());
+  const base = replyLang() === 'bn' ? BANGLA_LOCK + (config.lite ? litePrompt() : stablePrompt()) + BANGLA_LOCK : replyLang() === 'en' && config.replyLang === 'en' ? ENGLISH_LOCK + (config.lite ? litePrompt() : stablePrompt()) + ENGLISH_LOCK : (config.lite ? litePrompt() : stablePrompt());
   return `${base}\n${newsDirective(activeNewsMode(), [], replyLang())}`;
 };
 const LIVE_OPEN = '<live-state>', LIVE_CLOSE = '</live-state>';
@@ -1426,8 +1427,11 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
     if (newsDetail === 'short') return;
     for (const s of extractSources(result)) if (!turnSources.some((x) => x.url === s.url)) turnSources.push(s);
   };
-  // A spoken take carries the language the helper heard. Use it for this turn's prompt and reply voice only; the saved
-  // reply-language setting is untouched, and typed input never arrives here with a lang.
+  // Reply language selection:
+  // - English ('en') -> Always reply in English.
+  // - Bangla ('bn')  -> Always reply in Bangla.
+  // - Automatic ('auto') -> Follow the detected conversation language.
+  if (config.replyLang === 'en' || config.replyLang === 'bn') lang = config.replyLang;
   const turnLang = byVoice && (lang === 'bn' || lang === 'en') ? lang : replyLang();
   if (turnLang !== promptLang) { promptLang = turnLang; agentStale = true; }
   replyLangOverride = turnLang;
@@ -1670,6 +1674,8 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
     if (newsModeOverride) { newsModeOverride = null; agentStale = true; }
     setAutoPinNews(false);
     busy = false; turnVoice = null; turnImage = null;
+    if (!voice) holdWake(false);
+    else setTimeout(() => { if (!busy) holdWake(false); }, 15_000);
     stir(); saidCap = setTimeout(() => { saidPending = false; stir(); }, 90_000);
     // A tool cut off by Stop never reports back: end its tag too, or the Sidekick kept showing it ("looking at
     // CapCut") on every later request, with their own tags queued behind it.
@@ -2373,7 +2379,7 @@ let dictationCapture = { active: false, captured: null, error: '' };
 const voiceConfig = () => {
   const shortcut = dictationShortcut(config);
   // Recording needs the helper even when talking and dictation are both off.
-  send({ type: 'voice_config', enabled: VOICE_OK && (!!config.voice || !!config.stt || dictationCapture.active) && voiceReady(), mute: config.muteWhileTalking !== false, sound: !!config.sound, wake: WAKE_OK && !!config.wakeWord && !config.stt, wakeName: config.wakeName || '', lang: MAC ? speechLangId() : 'auto', stt: MAC && !!config.stt, sttLang: dictationLang(config.sttLang), sttKey: shortcut.code, sttMods: shortcut.mods, ...(NEEDS_MODEL ? { model: MODEL_DIR } : {}) });
+  send({ type: 'voice_config', enabled: VOICE_OK && (!!config.voice || !!config.stt || dictationCapture.active) && voiceReady(), mute: config.muteWhileTalking !== false, sound: !!config.sound, wake: WAKE_OK && !!config.wakeWord, wakeName: config.wakeName || '', lang: MAC ? speechLangId() : 'auto', stt: MAC && !!config.stt, sttLang: dictationLang(config.sttLang), sttKey: shortcut.code, sttMods: shortcut.mods, ...(NEEDS_MODEL ? { model: MODEL_DIR } : {}) });
   if (dictationCapture.active) send({ type: 'voice_key_capture' });
   // The native listening pill beside the cursor stays hidden while the notch capsule is where I appear.
   send({ type: 'pill', on: notchMode() === 'off' });
@@ -2732,10 +2738,19 @@ async function onMenu(id, via) {
   }
   else if (/^studiospeak_(short|medium|full)$/.test(id)) { config.studioSpeak = id.slice(12); speech.setStudioSpeak?.(config.studioSpeak); saveConfig(); menu(); }
   else if (/^newsmode_(short|medium|everything)$/.test(id)) { config.newsMode = id.slice(9); saveConfig(); agentStale = true; menu(); }
-  // Reply language for the built-in voice: English by default, Bangla when picked.
-  else if (/^replylang_(en|bn)$/.test(id)) {
-    config.replyLang = id.slice(10); speech.setLocalLanguage?.(config.replyLang); saveConfig(); agentStale = true; menu(); voiceConfig();
-    if (tts().local && VOICE_ON()) speakLine(config.replyLang === 'bn' ? 'আচ্ছা, এখন থেকে বাংলায় কথা বলব।' : 'Okay, I will reply in English from now on.');
+  // Reply language for the built-in voice: English, Bangla, or Automatic.
+  else if (/^replylang_(en|bn|auto)$/.test(id)) {
+    config.replyLang = id.slice(10);
+    speech.setLocalLanguage?.(config.replyLang === 'bn' ? 'bn' : 'en');
+    saveConfig(); agentStale = true; menu(); voiceConfig();
+    if (tts().local && VOICE_ON()) {
+      const line = config.replyLang === 'bn'
+        ? 'আচ্ছা, এখন থেকে বাংলায় কথা বলব।'
+        : config.replyLang === 'en'
+          ? 'Okay, I will reply in English from now on.'
+          : 'Okay, I will reply in the language you speak.';
+      speakLine(line);
+    }
   }
   // The two master switches.
   else if (id === 'hybrid') { config.hybrid = !config.hybrid; routeBack(); saveConfig(); menu(); }

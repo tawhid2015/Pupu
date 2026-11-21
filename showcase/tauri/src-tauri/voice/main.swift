@@ -822,7 +822,14 @@ final class Voice {
     // Wake word: on in settings; held off while Roamies answers and speaks; resting just after a take.
     private var wakeOn = false
     var wakeHold = false {
-        didSet { if wakeOn && wakeHold != oldValue { wakeLog(wakeHold ? "paused while Roamies answers" : "resumed") } }
+        didSet {
+            if wakeOn && wakeHold != oldValue {
+                wakeLog(wakeHold ? "paused while Roamies answers" : "resumed")
+                if !wakeHold && phase == .idle && wakeAllowed(uptime()) {
+                    startWake(uptime())
+                }
+            }
+        }
     }
     private var wakeLoud = 0.0, wakeLevelAt = 0.0 // seconds loud enough to be speech in this wake window
     private var wakeCooldownUntil = 0.0, wakeRetryAt = 0.0, wakeAt = 0.0
@@ -1494,12 +1501,23 @@ final class Voice {
     func setWake(_ on: Bool) {
         guard on != wakeOn else { return }
         wakeOn = on
-        if on { wakeDrops = 0; wakeRetryAt = 0 }
+        if on {
+            wakeDrops = 0; wakeRetryAt = 0
+            if !authorized(wake: true) {
+                ensureAuthorized { [weak self] in
+                    guard let self, self.wakeOn else { return }
+                    if self.phase == .idle && self.wakeAllowed(uptime()) {
+                        self.startWake(uptime())
+                    }
+                }
+            } else if phase == .idle && wakeAllowed(uptime()) {
+                startWake(uptime())
+            }
+        }
         log("wake word \(on ? "on" : "off")")
         if !on { stopWake(); if phase == .idle { stopAudio(close: true) } }
     }
 
-    // Never asks for permission: wake listening starts only once talking has been allowed.
     private func wakeAllowed(_ now: Double) -> Bool {
         wakeOn && !wakeHold && !dryRun && now >= wakeCooldownUntil && now >= wakeRetryAt && authorized(wake: true)
     }
