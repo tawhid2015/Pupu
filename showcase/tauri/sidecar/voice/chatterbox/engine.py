@@ -10,6 +10,7 @@ ROAMIES_VOICE_REFS (default: <this dir>/voices). Nothing is downloaded: both mus
 """
 import json
 import os
+import queue
 import sys
 import threading
 import time
@@ -23,7 +24,8 @@ PORT = int(os.environ.get("ROAMIES_VOICE_PORT", "0"))  # 0: the OS picks one, pr
 SAMPLE_RATE = 24000
 IDLE_EXIT_S = float(os.environ.get("ROAMIES_VOICE_IDLE", "900"))  # the sidecar sends /idle to end it earlier
 
-_lock = threading.Lock()  # one generation at a time: MLX is happiest that way
+_task_queue = queue.Queue()
+_ready_event = threading.Event()
 _models = {}  # 'en': the original Chatterbox, 'bn': the Bengali fine-tune
 _conds = {}  # (lang, voice) -> conditionals
 LANGUAGES = ('en', 'bn')
@@ -134,6 +136,45 @@ def synth(text, vid, lang="en"):
     return (np.clip(audio, -1.0, 1.0) * 32767.0).astype("<i2").tobytes()
 
 
+def synth_worker():
+    """Single dedicated synthesis worker thread.
+
+    All MLX models, conditionals, and audio generation run strictly inside this thread,
+    guaranteeing that MLX GPU streams and tensors never cross threads.
+    """
+    try:
+        load("en")
+        if os.path.isdir(os.path.join(MODELS, "chatterbox-bangla")):
+            try:
+                load("bn")
+            except Exception as e:
+                _log("warning: failed to preload bn model:", e)
+    except Exception as e:
+        _log("model preload error:", e)
+    finally:
+        _ready_event.set()
+
+    while True:
+        task = _task_queue.get()
+        if task is None:
+            break
+        cmd, args, reply_q = task
+        try:
+            if cmd == "warm":
+                vid, lang = args
+                conditionals(vid, lang)
+                reply_q.put(("ok", None))
+            elif cmd == "synth":
+                text, vid, lang = args
+                pcm = synth(text, vid, lang)
+                reply_q.put(("ok", pcm))
+            else:
+                reply_q.put(("error", f"unknown command {cmd}"))
+        except Exception as e:
+            _log(f"{cmd} worker error:", e)
+            reply_q.put(("error", str(e)))
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -177,27 +218,25 @@ class Handler(BaseHTTPRequestHandler):
         if lang == "bn" and (not vid or vid in ("sarah", "default", "classic", "")):
             vid = "bengali"
         if self.path == "/warm":
-            try:
-                with _lock:
-                    # Prepare the voice that's about to speak. Warming every reference here used to queue minutes of
-                    # work in front of the first sentence when a look or language changed; each voice is prepared on
-                    # its own first use (or when it's picked) instead. The audio itself is identical.
-                    conditionals(vid, lang)
+            reply_q = queue.Queue()
+            _task_queue.put(("warm", (vid, lang), reply_q))
+            status, res = reply_q.get()
+            if status == "ok":
                 return self._json(200, {"ok": True})
-            except Exception as e:  # noqa: BLE001
-                _log("warm failed:", e)
-                return self._json(500, {"ok": False, "error": str(e)})
+            _log("warm failed:", res)
+            return self._json(500, {"ok": False, "error": str(res)})
         if not text:
             return self._json(400, {"ok": False, "error": "no text"})
         if self.path != "/say":
             return self._json(404, {"ok": False})
         t0 = time.time()
-        try:
-            with _lock:
-                pcm = synth(text[:1200], vid, lang)
-        except Exception as e:  # noqa: BLE001
-            _log("say failed:", e)
-            return self._json(500, {"ok": False, "error": str(e)})
+        reply_q = queue.Queue()
+        _task_queue.put(("synth", (text[:1200], vid, lang), reply_q))
+        status, res = reply_q.get()
+        if status != "ok":
+            _log("say failed:", res)
+            return self._json(500, {"ok": False, "error": str(res)})
+        pcm = res
         secs = len(pcm) / 2 / SAMPLE_RATE
         _log(f"{lang} say {secs:.2f}s audio in {time.time() - t0:.2f}s: {text[:60]!r}")
         self.send_response(200)
@@ -234,18 +273,18 @@ def main():
     if not os.path.isdir(os.path.join(MODELS, "chatterbox-4bit")):
         _log("no model at", MODELS)
         sys.exit(2)
-    load("en")  # fail fast, before the app waits on a socket
-    if os.path.isdir(os.path.join(MODELS, "chatterbox-bangla")):
-        try:
-            load("bn")
-        except Exception as e:
-            _log("warning: failed to preload bn model:", e)
+    # Start the dedicated synth worker thread that owns the MLX stream and GPU context
+    threading.Thread(target=synth_worker, daemon=True).start()
+    _ready_event.wait()
     if os.isatty(0):  # typed by hand: warm before serving, so the first timed run is fair
-        with _lock:
-            conditionals(None, "en")
-            synth("Ready.", None, "en")
-            if "bn" in _models:
-                conditionals("bengali", "bn")
+        q = queue.Queue()
+        _task_queue.put(("warm", (None, "en"), q))
+        q.get()
+        _task_queue.put(("synth", ("Ready.", None, "en"), q))
+        q.get()
+        if "bn" in _models:
+            _task_queue.put(("warm", ("bengali", "bn"), q))
+            q.get()
         _log("warm")
     threading.Thread(target=reap, daemon=True).start()
     threading.Thread(target=leash, daemon=True).start()
