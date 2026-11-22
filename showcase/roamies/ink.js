@@ -781,7 +781,7 @@
             if (a > 0.6) {
               b.font = `500 11px ${MONO}`;
               b.fillStyle = isHot ? HOT : 'rgba(120,255,226,0.7)';
-              b.fillText('↗', x + w - 32, yy + 16);
+              b.fillText('▶', x + w - 32, yy + 16);
             }
             hits.push({ rect: [x + 16, yy - 3, w - 32, itemH], kind: 'story', index: i, id: `story:${i}`, story, part: m.part });
           }

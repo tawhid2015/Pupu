@@ -38,7 +38,8 @@ import { EMOTES, EchoFilter, ReplyStream } from './reply.mjs';
 import { downloadModel, isReady, modelDir, sizeLabel, totalBytes } from './voicemodel.mjs';
 import { MODEL as ASR_MODEL, prepareBanglaAsr, ready as banglaAsrReady, removeTake, size as banglaAsrSize, transcribeTake, wantsBanglaAsr } from './bangla-asr.mjs';
 import { cleanWhisperArtifacts, isPureEnglish, restoreCodeSwitch } from './banglish.mjs';
-import { cleanPublisherName, extractSources, newsDirective, newsMode, parseNewsItems, sourceLine, wantsNewsMode } from './newsmode.mjs';
+import { cleanPublisherName, extractSources, newsDirective, newsMode, parseNewsItems, sourceLine, wantsNewsMode, categorizeTask, isResearchableTask, formulateResearchPlan, synthesizeResearchDossier, mergeSources } from './newsmode.mjs';
+const activeDossiersMap = new Map();
 import { DICTATION_KEYS, DICTATION_LANGS, dictationConflict, dictationKeyCode, dictationLang, dictationSettings, dictationShortcut, dictationShortcutLabel, needDictationModel } from './dictation.mjs';
 import { noStyle, rewriteNote, rewriteSystem, styleFrom, writingCommand, writingLang } from './writing.mjs';
 import { checkTextAction } from './safety.mjs';
@@ -1107,27 +1108,46 @@ function showcaseDrawn() {
 // Its web card's site icons, fetched when the step opens (they're cached), so the first card isn't held up by them.
 function warmShowcase() { for (const b of showcaseBeats(userName)) for (const m of b.marks) for (const s of m.sources ?? []) if (checkDrawAction({ kind: 'favicon', url: s.url }).level === SAFE) faviconFor(s.url).catch(() => {}); }
 function stopShowcase() { if (!showcase) return; endShowcase('gone'); ink.clear(); }
-// A clicked story on a news card: open link in browser, pin full story card, and speak aloud
+// A clicked story on a news or research card: pin full dossier/document card, and speak full content aloud
 async function handleOpenStory(story, part) {
   if (!story) return;
   const lang = config.replyLang === 'bn' ? 'bn' : 'en';
 
-  // 1. Open full story in default web browser
-  if (story.url) {
-    const v = checkLink(story.url);
-    if (v.level === SAFE) openUrl(String(story.url));
-    else console.error('story URL blocked:', v.reason);
-  }
+  const cached = activeDossiersMap.get(story.id)
+    || (story.title ? activeDossiersMap.get(story.title.toLowerCase()) : null)
+    || (story.url ? activeDossiersMap.get(story.url) : null);
 
-  // 2. Pin full news content card on screen
+  const fullContent = cached?.fullContent || story.fullContent || story.snippet || story.title;
+  const spokenText = cached?.spokenText || story.spokenText || fullContent;
+  const headline = cached?.headline || story.title || 'Market Research';
+  const category = cached?.category || story.category || 'Deep Research';
+  const bias = cached?.bias || story.bias || null;
+  const sourceName = cached?.source || story.source || 'Intelligence';
+  const keyPoints = (cached?.keyPoints && cached.keyPoints.length)
+    ? cached.keyPoints
+    : ((story.keyPoints && story.keyPoints.length) ? story.keyPoints : []);
+  const sources = (cached?.sources && cached.sources.length)
+    ? cached.sources
+    : ((story.sources && story.sources.length) ? story.sources : (story.url ? [{ name: sourceName, url: story.url }] : []));
+
+  // 1. Pin full news/dossier card on screen without opening the browser
   try {
     const draw = tools.find((t) => t.name === 'draw');
     if (draw) {
-      const storyTitle = String(story.source ? `${story.source} News` : 'News Story').slice(0, 60);
-      const storyHeading = String(story.title || 'News Update').slice(0, 80);
-      const storyText = String(story.snippet || story.title || '').slice(0, 320);
-      const storySources = story.url ? [{ name: String(story.source || 'Source').slice(0, 15), url: story.url }] : [];
-      const beatSay = lang === 'bn' ? 'সংবাদটি পিন করা হলো।' : 'Story pinned.';
+      setAutoPinNews(true);
+      const storyTitle = String(category ? `${category} | ${sourceName}` : `${sourceName} News`).slice(0, 60);
+      const storyHeading = String(headline).slice(0, 80);
+      const summaryText = String(cached?.summarySnippet || story.snippet || headline).slice(0, 240);
+      const bulletItems = keyPoints.length
+        ? keyPoints.slice(0, 5).map((p) => String(p).slice(0, 115))
+        : (bias ? [`Market Bias: ${bias}`, `Status: Full report loaded`] : [headline.slice(0, 115)]);
+
+      const cleanSources = sources.slice(0, 4).map((s) => ({
+        name: cleanPublisherName(s.name, s.url),
+        url: s.url
+      }));
+
+      const beatSay = lang === 'bn' ? 'সম্পূর্ণ গবেষণা কার্ড পিন করা হলো।' : 'Full dossier pinned.';
       await draw.execute({
         beats: [{
           say: beatSay,
@@ -1135,8 +1155,9 @@ async function handleOpenStory(story, part) {
             kind: 'card',
             title: storyTitle,
             heading: storyHeading,
-            text: storyText,
-            sources: storySources,
+            text: summaryText,
+            items: bulletItems,
+            sources: cleanSources,
             pinned: true
           }]
         }]
@@ -1144,18 +1165,21 @@ async function handleOpenStory(story, part) {
     }
   } catch (err) {
     console.error('Failed to pin story card:', err);
+  } finally {
+    setAutoPinNews(false);
   }
 
-  // 3. Start speaking that news aloud
-  const speakText = lang === 'bn'
-    ? `এখানে ${story.source || 'উৎস'} থেকে বিস্তারিত সংবাদ: ${story.title}। ${story.snippet || ''}`
-    : `Here is the story from ${story.source || 'the report'}: ${story.title}. ${story.snippet || ''}`;
-  say(speakText, 'happy');
+  // 2. Start speaking the full content aloud until finished or interrupted
+  say(fullContent, 'happy');
   if (speech.on || VOICE_ON()) {
     speech.stop();
     const v = speech.start();
     if (v) {
-      v.say(speakText);
+      const sentences = spokenText.match(/[^.!?।\n]+[.!?।\n]+|\S+/g) || [spokenText];
+      for (const sentence of sentences) {
+        const trimmed = sentence.trim();
+        if (trimmed) v.say(trimmed);
+      }
       v.end();
     }
   }
@@ -1867,8 +1891,11 @@ function detectTodoistRequest(turnWords, token) {
     return { action: 'open' };
   }
 
-  // 2. Do work / execute tasks
-  if (/(?:\b(do|execute|run|perform|complete)\b|কাজগুলো করো|কাজ করো|করে দাও|করে ফেলো)/iu.test(t) && (mentionsTodoist || /(?:task|work|job)/i.test(t))) {
+  // 2. Do work / execute tasks / research
+  if (/(?:\b(do|execute|run|perform|complete|research|briefing|routine)\b|কাজগুলো করো|কাজ করো|করে দাও|করে ফেলো|রিসার্চ|ব্রিফিং)/iu.test(t) && (mentionsTodoist || /(?:task|work|job|resource|news)/i.test(t))) {
+    return { action: 'do_work' };
+  }
+  if (/(?:check|chk)\s+(?:and\s+)?(?:do|run|execute|research)/iu.test(t) && (mentionsTodoist || /(?:task|work)/i.test(t))) {
     return { action: 'do_work' };
   }
 
@@ -1904,8 +1931,13 @@ async function runTodoistWorkReport(lang = 'en', { autoClose = true, isLaunch = 
   }
 
   const todayStr = new Date().toISOString().slice(0, 10);
-  const activeTasks = tasks.filter((t) => !t.due?.date || t.due.date <= todayStr);
-  if (!activeTasks.length) {
+  let candidateTasks = tasks.filter((t) => !t.due?.date || t.due.date <= todayStr);
+  if (!candidateTasks.length && !isLaunch) {
+    // When manually requested during the day, also include recurring daily tasks
+    candidateTasks = tasks.filter((t) => t.due?.is_recurring || !t.due?.date);
+  }
+
+  if (!candidateTasks.length) {
     if (isLaunch) return null;
     return {
       reportText: lang === 'bn' ? 'আজকের জন্য কোনো পেন্ডিং টাস্ক নেই। পরবর্তী কাজগুলো ভবিষ্যতের জন্য নির্ধারিত।' : 'All tasks for today are already completed! Next tasks are scheduled for upcoming days.',
@@ -1913,158 +1945,163 @@ async function runTodoistWorkReport(lang = 'en', { autoClose = true, isLaunch = 
     };
   }
 
-  // Find an actionable task (e.g. "Chk Gold News", "Check news", "Weather", etc.)
-  let actionableTask = null;
-  let searchQuery = null;
+  // Identify all researchable/news tasks
+  const researchTasks = candidateTasks.filter((t) => isResearchableTask(t));
+  const otherTasks = candidateTasks.filter((t) => !isResearchableTask(t));
 
-  for (const t of activeTasks) {
-    const c = t.content.trim();
-    if (/(?:gold|shona|স্বর্ণ|সোনা)/i.test(c)) {
-      actionableTask = t;
-      searchQuery = 'today gold price and market news headlines';
-      break;
-    } else if (/(?:weather|আবহাওয়া|forecast)/i.test(c)) {
-      actionableTask = t;
-      searchQuery = 'today weather forecast';
-      break;
-    } else if (/(?:news|খবর|headline)/i.test(c)) {
-      actionableTask = t;
-      searchQuery = c.replace(/^(?:chk|check|find|get)\s+/i, '') + ' today';
-      break;
-    } else if (/^(?:chk|check|search|find|lookup|look up)\s+(.+)/i.test(c)) {
-      actionableTask = t;
-      const target = c.replace(/^(?:chk|check|search|find|lookup|look up)\s+/i, '');
-      searchQuery = `today ${target}`;
-      break;
-    }
-  }
+  const completedDossiers = [];
+  const allSources = [];
+  const searchTool = tools.find((x) => x.name === 'web_search');
 
-  let formattedSummary = '';
-  let extractedItems = [];
-  let turnSources = [];
+  // Background sequential research loop (polite pacing, zero UI lag)
+  for (const task of researchTasks) {
+    const plan = formulateResearchPlan(task);
+    let rawSearchRes = null;
 
-  if (actionableTask && searchQuery) {
-    const searchTool = tools.find((x) => x.name === 'web_search');
-    if (searchTool) {
+    if (searchTool && plan.primaryQuery) {
       try {
-        const rawRes = await searchTool.execute(
-          { query: searchQuery, time_range: 'day' },
+        rawSearchRes = await searchTool.execute(
+          { query: plan.primaryQuery, time_range: 'day' },
           { signal: new AbortController().signal }
         );
-        if (typeof rawRes === 'string') {
-          turnSources = extractSources(rawRes);
-          extractedItems = parseNewsItems(rawRes);
-          formattedSummary = formatSearchSummary(rawRes, lang);
-        }
       } catch (err) {
-        console.error('Todoist task search failed:', err);
+        console.error(`Research search failed for "${task.content}":`, err);
       }
     }
 
-    // Pin the news card on screen with full news data and headlines
-    if (extractedItems.length || turnSources.length) {
-      try {
-        setAutoPinNews(true);
-        const draw = tools.find((t) => t.name === 'draw');
-        if (draw) {
-          const stories = extractedItems.slice(0, 3).map((it) => ({
-            title: String(it.title || '').trim(),
-            snippet: String(it.snippet || '').trim().replace(/\bhttps?:\/\/\S+/g, ''),
-            url: it.url || '',
-            source: it.source || cleanPublisherName(it.title, it.url)
-          }));
-          const bulletItems = stories.length
-            ? stories.map((s) => (s.snippet ? `${s.title.slice(0, 42)} - ${s.snippet.slice(0, 68)}`.slice(0, 115) : s.title.slice(0, 115)))
-            : turnSources.slice(0, 3).map((s) => s.name.slice(0, 115));
-          if (!bulletItems.length) {
-            bulletItems.push(formattedSummary ? formattedSummary.slice(0, 115) : 'Latest market rates and headlines');
-          }
-          const cleanSources = turnSources.slice(0, 4).map((s) => ({
-            name: cleanPublisherName(s.name, s.url),
-            url: s.url
-          }));
-          const cardHeading = (lang === 'bn' ? 'আজকের স্বর্ণ ও বাজার খবর' : 'Today Gold News & Rates').slice(0, 80);
-          const cardTitle = String(actionableTask.content || 'News').slice(0, 60);
-          const cardText = (lang === 'bn' ? 'স্বর্ণের বাজার দর ও খবরের আপডেট নিচে দেওয়া হলো:' : 'Latest gold market prices, Fed headlines and bullion rates:').slice(0, 120);
+    const dossier = synthesizeResearchDossier(task, rawSearchRes || '', lang);
+    completedDossiers.push(dossier);
+    activeDossiersMap.set(dossier.id, dossier);
+    if (dossier.title) activeDossiersMap.set(dossier.title.toLowerCase(), dossier);
+    if (dossier.url) activeDossiersMap.set(dossier.url, dossier);
 
-          await draw.execute({
-            beats: [{
-              say: lang === 'bn' ? 'সংবাদ কার্ড পিন করা হলো।' : 'News card pinned.',
-              marks: [{
-                kind: 'card',
-                title: cardTitle,
-                heading: cardHeading,
-                text: cardText,
-                items: bulletItems,
-                stories,
-                sources: cleanSources,
-                pinned: true
-              }]
-            }]
-          }, { toolCallId: `news-pin-${Date.now()}` }).catch(() => {});
-        }
-      } catch (e) {
-        console.error('News pin failed:', e);
-      } finally {
-        setAutoPinNews(false);
-      }
+    if (Array.isArray(dossier.sources)) {
+      allSources.push(...dossier.sources);
     }
 
+    // Auto-close in Todoist & mark done in UI
     if (autoClose) {
-      // Mark as done for today in our UI
-      todoistDoneToday.set(actionableTask.id, {
-        id: `todoist:${actionableTask.id}`,
-        todoistId: actionableTask.id,
-        text: actionableTask.content,
+      todoistDoneToday.set(task.id, {
+        id: `todoist:${task.id}`,
+        todoistId: task.id,
+        text: task.content,
         done: true,
         overdue: false,
         when: 'Done today ↻',
-        repeat: actionableTask.due?.string || 'daily',
+        repeat: task.due?.string || 'daily',
         isTodoist: true
       });
-      // Close in Todoist (for recurring tasks, Todoist advances next occurrence to tomorrow)
-      await closeTodoistTask(config.todoistToken, actionableTask.id).catch(() => {});
-      await syncTodoistTasks(true);
-      panel();
+      await closeTodoistTask(config.todoistToken, task.id).catch(() => {});
+    }
+
+    // Polite pause between research steps so the system stays completely smooth
+    await new Promise((resolve) => setTimeout(resolve, 350));
+  }
+
+  if (autoClose && researchTasks.length) {
+    await syncTodoistTasks(true);
+    panel();
+  }
+
+  // Sort dossiers by logical category order: Market News -> Fundamental -> Calendar -> General
+  completedDossiers.sort((a, b) => (a.categoryOrder ?? 9) - (b.categoryOrder ?? 9));
+
+  // If research dossiers were generated, pin the Master Summary Card
+  if (completedDossiers.length) {
+    try {
+      setAutoPinNews(true);
+      const draw = tools.find((t) => t.name === 'draw');
+      if (draw) {
+        const stories = completedDossiers.map((d) => ({
+          id: d.id,
+          title: `${d.categoryBadge} ${d.title}`,
+          category: d.category,
+          snippet: d.summarySnippet,
+          fullContent: d.fullContent,
+          spokenText: d.spokenText,
+          keyPoints: d.keyPoints,
+          url: d.url,
+          source: d.source,
+          sources: d.sources
+        }));
+
+        const bulletItems = completedDossiers.map((d) => {
+          const shortBias = d.bias ? d.bias.split(' ')[0] : 'Report';
+          return `${d.categoryBadge} ${d.title}: ${shortBias} - ${d.headline.slice(0, 48)}`.slice(0, 115);
+        });
+
+        const cleanSources = mergeSources([], allSources, 5).map((s) => ({
+          name: cleanPublisherName(s.name, s.url),
+          url: s.url
+        }));
+
+        const cardHeading = (lang === 'bn' ? 'দৈনিক বাজার ও গবেষণা ডসিয়ার' : 'Daily Market & Research Dossier').slice(0, 80);
+        const cardTitle = 'Todoist Research Briefing';
+        const cardText = (lang === 'bn'
+          ? `আপনার ${completedDossiers.length}টি কাজের বিশ্লেষণ সম্পন্ন হয়েছে। যেকোনো বিষয়ে ক্লিক করে সম্পূর্ণ ডসিয়ার পিন করুন এবং শুনুন:`
+          : `Completed deep research across ${completedDossiers.length} daily tasks. Click any topic to pin full dossier & listen:`)
+          .slice(0, 140);
+
+        await draw.execute({
+          beats: [{
+            say: lang === 'bn' ? 'গবেষণা কার্ড পিন করা হলো।' : 'Research dossier pinned.',
+            marks: [{
+              kind: 'card',
+              title: cardTitle,
+              heading: cardHeading,
+              text: cardText,
+              items: bulletItems,
+              stories,
+              sources: cleanSources,
+              pinned: true
+            }]
+          }]
+        }, { toolCallId: `todoist-master-${Date.now()}` }).catch(() => {});
+      }
+    } catch (err) {
+      console.error('Master dossier card pin failed:', err);
+    } finally {
+      setAutoPinNews(false);
     }
   }
 
-  const remaining = activeTasks.filter((t) => t.id !== actionableTask?.id);
-  const remainingStr = remaining.length
+  // Format executive summary report for chat
+  const categorizedSections = {};
+  for (const d of completedDossiers) {
+    const cat = d.category || 'General';
+    if (!categorizedSections[cat]) categorizedSections[cat] = [];
+    categorizedSections[cat].push(d);
+  }
+
+  let formattedReport = '';
+  for (const [catName, list] of Object.entries(categorizedSections)) {
+    const badge = list[0]?.categoryBadge || '📌';
+    formattedReport += `\n\n### ${badge} ${catName}\n`;
+    for (const d of list) {
+      formattedReport += `\n- **${d.title}**: ${d.headline}\n  *Bias:* ${d.bias}\n  ${d.summarySnippet}\n`;
+    }
+  }
+
+  const remainingStr = otherTasks.length
     ? (lang === 'bn' ? '\n\nঅন্যান্য কাজ:\n' : '\n\nOther pending tasks:\n') +
-      remaining.map((t, i) => `${i + 1}. ${t.content}${t.due?.string ? ` (${t.due.string})` : ''}`).join('\n')
+      otherTasks.map((t, i) => `${i + 1}. ${t.content}${t.due?.string ? ` (${t.due.string})` : ''}`).join('\n')
     : '';
 
-  if (actionableTask) {
-    let spokenNews = '';
-    if (extractedItems.length) {
-      spokenNews = extractedItems
-        .slice(0, 3)
-        .map((it, i) => `${i + 1}: ${it.title}. ${it.snippet.slice(0, 110).replace(/\bhttps?:\/\/\S+/g, '')}`)
-        .join('. Next story: ');
-    }
-
-    const reportText = lang === 'bn'
-      ? `${isLaunch ? 'চালুর পর ' : ''}Todoist চেক করে **"${actionableTask.content}"** কাজটি সম্পন্ন করা হয়েছে:${formattedSummary ? '\n\n' + formattedSummary : ''}\n\n✅ আজকের কাজটি সম্পন্ন (Done) করা হয়েছে এবং সংবাদ কার্ড পিন করা হয়েছে।${remainingStr}`
-      : `${isLaunch ? 'On launch, I checked ' : 'Checked '}your Todoist and completed: **${actionableTask.content}**:${formattedSummary ? '\n\n' + formattedSummary : ''}\n\n✅ *Marked as Done for today in Todoist (repeats tomorrow), and news card pinned to screen.*${remainingStr}`;
-
-    const spokenText = lang === 'bn'
-      ? `হ্যালো! চালুর পর আমি আপনার Todoist চেক করেছি এবং "${actionableTask.content}" টাস্কটি সম্পন্ন করে দিয়েছি। আজকের খবর: ${spokenNews || 'বিস্তারিত আপডেট স্ক্রিনে দেওয়া হয়েছে।'}`
-      : `Hello! On launch, I checked your Todoist and completed your task: ${actionableTask.content}. Here is today's news: ${spokenNews || "Gold market updates are on your screen."}`;
-
-    return { reportText, spokenText, task: actionableTask, completed: true };
-  }
-
-  // Non-actionable tasks listing
-  const listStr = activeTasks.map((t, i) => `${i + 1}. ${t.content}${t.due?.string ? ` (${t.due.string})` : ''}`).join('\n');
   const reportText = lang === 'bn'
-    ? `${isLaunch ? 'চালুর পর ' : ''}আপনার আজকের Todoist কাজগুলো:\n\n${listStr}`
-    : `${isLaunch ? 'On launch, here ' : 'Here '}are your Todoist tasks for today:\n\n${listStr}`;
-  const spokenText = lang === 'bn'
-    ? `আপনার আজকের Todoist-এ ${activeTasks.length}টি কাজ রয়েছে।`
-    : `You have ${activeTasks.length} task${activeTasks.length === 1 ? '' : 's'} on your Todoist for today.`;
+    ? `${isLaunch ? 'চালুর পর ' : ''}আপনার Todoist চেক করে **${completedDossiers.length}টি** টাস্কের ওপর গভীর গবেষণা সম্পন্ন করা হয়েছে:${formattedReport}\n\n✅ *সকল কাজ সম্পন্ন (Done) চিহ্নিত করা হয়েছে এবং মাস্টার ডসিয়ার স্ক্রিনে পিন করা হয়েছে। যেকোনো টপিকে ক্লিক করলে পূর্ণাঙ্গ রিপোর্ট দেখা ও শোনা যাবে।*${remainingStr}`
+    : `${isLaunch ? 'On launch, I checked ' : 'Checked '}your Todoist and completed deep research across **${completedDossiers.length} tasks**:${formattedReport}\n\n✅ *All research tasks marked as Done today in Todoist (repeating tomorrow), and the Master Dossier card is pinned to your screen. Click any topic to pin its full analysis and listen.*${remainingStr}`;
 
-  return { reportText, spokenText, completed: false };
+  const spokenText = lang === 'bn'
+    ? `হ্যালো! আমি আপনার Todoist-এর ${completedDossiers.length}টি টাস্কের ওপর মার্কেট নিউজ, ফান্ডামেন্টাল এবং ইকোনমিক ক্যালেন্ডার গবেষণা সম্পন্ন করেছি। পূর্ণাঙ্গ ডসিয়ার স্ক্রিনে পিন করা হয়েছে। বিস্তারিত শুনতে যেকোনো বিষয়ে ক্লিক করুন।`
+    : `Hello! I have completed deep background research on all ${completedDossiers.length} of your daily tasks across Market News, Fundamentals, and Economic Calendar. The categorized briefing is pinned on your screen. You can click any topic to pin the full analysis and hear it read aloud.`;
+
+  return {
+    reportText,
+    spokenText,
+    tasks: researchTasks,
+    dossiers: completedDossiers,
+    completed: true
+  };
 }
 
 async function autoTodoistCheckOnLaunch() {
@@ -2075,7 +2112,10 @@ async function autoTodoistCheckOnLaunch() {
     if (!result) return;
 
     say(result.reportText, 'happy');
-    if (result.task) {
+    if (result.tasks && result.tasks.length) {
+      showList({ flash: `todoist:${result.tasks[0].id}`, seconds: 8 });
+      ui({ kind: 'agent', e: { type: 'emote', action: 'hype' } });
+    } else if (result.task) {
       showList({ flash: `todoist:${result.task.id}`, seconds: 8 });
       ui({ kind: 'agent', e: { type: 'emote', action: 'hype' } });
     } else {
@@ -2387,6 +2427,7 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
             const msg = res?.reportText || (turnLang === 'bn' ? 'কোনো পেন্ডিং টাস্ক পাওয়া যায়নি।' : 'No actionable tasks found in Todoist right now.');
             reply.push(msg);
             lastReply = msg;
+            if (res?.spokenText) turnVoice = res.spokenText;
             showList({ seconds: 6 });
           } catch (err) {
             ui({ kind: 'agent', e: { type: 'tool_end', id: toolCallId, isError: true } });

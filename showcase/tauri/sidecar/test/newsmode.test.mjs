@@ -3,7 +3,7 @@
 // Everything shows links and pins the sources card. Run: npm test.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { cleanPublisherName, extractSources, mergeSources, newsDirective, newsMode, parseNewsItems, sourceLine, wantsNewsMode } from '../newsmode.mjs';
+import { cleanPublisherName, extractSources, mergeSources, newsDirective, newsMode, parseNewsItems, sourceLine, wantsNewsMode, categorizeTask, isResearchableTask, formulateResearchPlan, synthesizeResearchDossier } from '../newsmode.mjs';
 
 const root = new URL('../../../../', import.meta.url);
 const src = (p) => readFileSync(new URL(p, root), 'utf8');
@@ -80,5 +80,30 @@ assert.equal(parsed[0].title, 'Gold Rates Today');
 assert.equal(parsed[0].source, 'LiveGold');
 assert.equal(parsed[0].url, 'https://www.livepriceofgold.com/gold-price.html');
 assert.match(parsed[0].snippet, /Gold surged/);
+
+const task1 = { content: 'Gold News (XAUUSD)', description: 'Check the latest Gold news from today. Bullish, bearish, safe-haven demand.' };
+const task2 = { content: 'Gold Fundamental Analysis', description: 'Analyze central bank buying, ETF flows, Fed rate outlook, fundamental bias.' };
+const task3 = { content: "Today's Economic Calendar", description: 'Check global calendar, high-impact USD events, GMT+6 timings.' };
+
+assert.equal(categorizeTask(task1).id, 'market_news');
+assert.equal(categorizeTask(task2).id, 'fundamental');
+assert.equal(categorizeTask(task3).id, 'calendar');
+
+assert.equal(isResearchableTask(task1), true);
+assert.equal(isResearchableTask({ content: 'buy milk' }), false);
+
+const plan1 = formulateResearchPlan(task1);
+assert.match(plan1.primaryQuery, /gold.*news/i);
+
+const dossier1 = synthesizeResearchDossier(task1, sampleSearch, 'en');
+assert.equal(dossier1.category, 'Market News');
+assert.match(dossier1.bias, /Bullish/);
+assert.ok(dossier1.fullContent.length > 50);
+assert.ok(dossier1.spokenText.length > 30);
+assert.equal(dossier1.keyPoints.length > 0, true);
+
+// Verify handleOpenStory does not automatically open the browser URL
+assert.doesNotMatch(side, /handleOpenStory[\s\S]{1,200}openUrl\(String\(story\.url\)\)/, 'clicking a story does not open Chrome');
+assert.match(ink, /fillText\('▶'/, 'ink renders play/read symbol for interactive story cards');
 
 console.log('news mode tests: passed');
