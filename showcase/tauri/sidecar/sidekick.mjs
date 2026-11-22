@@ -1499,6 +1499,157 @@ async function playSpotify({ action = 'liked', query = '' } = {}) {
   }
 }
 
+function detectDirectCommand(words) {
+  if (!words || typeof words !== 'string') return null;
+  const t = words.trim().toLowerCase();
+
+  // 1. Stop music / Spotify
+  if (/(?:\b(?:stop|pause|halt|end)\s+(?:the\s+)?(?:song|songs|music|audio|track|spotify|spotfy)\b|^(?:pause\s*(?:the\s*)?(?:music|song|spotify)?)$|(?:গান|মিউজিক|স্পটিফাই)\s*(?:বন্ধ|থামাও|পজ))/iu.test(t)) {
+    return { action: 'stop_music' };
+  }
+
+  // 2. Stop video / YouTube
+  if (/(?:\b(?:stop|pause|halt|end)\s+(?:the\s+)?(?:video|youtube|clip)\b|(?:ভিডিও|ইউটিউব)\s*(?:বন্ধ|থামাও|পজ))/iu.test(t)) {
+    return { action: 'stop_video' };
+  }
+
+  // 3. Stop speech / general stop
+  if (/(?:\b(?:stop\s+speaking|stop\s+talking|be\s+quiet|shut\s+up|hush|hold\s+on|stop\s+that)\b|^(?:stop|quiet|hush|cancel)$|^(?:থামো|চুপ|চুপ\s*করো|থেমে\s*যাও|বন্ধ\s*করো)$)/iu.test(t)) {
+    return { action: 'stop' };
+  }
+
+  // 4. Next video
+  if (/(?:\b(?:play\s+)?next\s+(?:video|clip)\b|পরের\s*ভিডিও)/iu.test(t)) {
+    return { action: 'next_video' };
+  }
+
+  // 5. Next song / just "next" / skip
+  if (/(?:\b(?:play\s+)?next\s+(?:song|track|music|audio)\b|\b(?:skip|skip\s+song|skip\s+track|play\s+next)\b|^(?:next|skip)$|পরের\s*গান|নেক্সট\s*গান|পরেরটা|গান\s*স্কিপ)/iu.test(t)) {
+    return { action: 'next_song' };
+  }
+
+  return null;
+}
+
+async function handleDirectCommand(cmd, turnLang) {
+  if (cmd.action === 'stop') {
+    speech.stop();
+    ui({ kind: 'speech', stop: true });
+    ui({ kind: 'agent', e: { type: 'hush' } });
+    if (process.platform === 'darwin') {
+      await run('osascript', ['-e', 'tell application "System Events" to if (name of processes) contains "Spotify" then tell application "Spotify" to pause']).catch(() => {});
+      const pauseVideoScript = `
+        tell application "System Events"
+          if (name of processes) contains "Safari" then
+            tell application "Safari"
+              repeat with w in windows
+                repeat with t in tabs of w
+                  if URL of t contains "youtube.com/watch" then do JavaScript "document.querySelector('video')?.pause()" in t
+                end repeat
+              end repeat
+            end tell
+          end if
+          if (name of processes) contains "Google Chrome" then
+            tell application "Google Chrome"
+              repeat with w in windows
+                repeat with t in tabs of w
+                  if URL of t contains "youtube.com/watch" then execute t javascript "document.querySelector('video')?.pause()"
+                end repeat
+              end repeat
+            end tell
+          end if
+        end tell
+      `;
+      await run('osascript', ['-e', pauseVideoScript]).catch(() => {});
+    }
+    const msg = turnLang === 'bn' ? 'আচ্ছা, থেমেছি।' : 'Stopped.';
+    say(msg, 'quiet');
+    return msg;
+  }
+
+  if (cmd.action === 'stop_music') {
+    if (process.platform === 'darwin') {
+      await run('osascript', ['-e', 'tell application "Spotify" to pause']).catch(() => {});
+    }
+    const msg = turnLang === 'bn' ? 'গান বন্ধ করেছি।' : 'Music paused.';
+    speakLine(msg);
+    return msg;
+  }
+
+  if (cmd.action === 'stop_video') {
+    if (process.platform === 'darwin') {
+      const pauseVideoScript = `
+        tell application "System Events"
+          if (name of processes) contains "Safari" then
+            tell application "Safari"
+              repeat with w in windows
+                repeat with t in tabs of w
+                  if URL of t contains "youtube.com/watch" then do JavaScript "document.querySelector('video')?.pause()" in t
+                end repeat
+              end repeat
+            end tell
+          end if
+          if (name of processes) contains "Google Chrome" then
+            tell application "Google Chrome"
+              repeat with w in windows
+                repeat with t in tabs of w
+                  if URL of t contains "youtube.com/watch" then execute t javascript "document.querySelector('video')?.pause()"
+                end repeat
+              end repeat
+            end tell
+          end if
+        end tell
+      `;
+      await run('osascript', ['-e', pauseVideoScript]).catch(() => {});
+    }
+    const msg = turnLang === 'bn' ? 'ভিডিও বন্ধ করেছি।' : 'Video paused.';
+    speakLine(msg);
+    return msg;
+  }
+
+  if (cmd.action === 'next_song') {
+    if (process.platform === 'darwin') {
+      await run('osascript', ['-e', 'tell application "Spotify" to next track\ntell application "Spotify" to play']).catch(() => {});
+    }
+    const msg = turnLang === 'bn' ? 'পরের গান বাজাচ্ছি...' : 'Playing next song on Spotify...';
+    speakLine(msg);
+    return msg;
+  }
+
+  if (cmd.action === 'next_video') {
+    if (process.platform === 'darwin') {
+      const nextVideoScript = `
+        tell application "System Events"
+          if (name of processes) contains "Safari" then
+            tell application "Safari"
+              repeat with w in windows
+                repeat with t in tabs of w
+                  if URL of t contains "youtube.com/watch" then do JavaScript "document.querySelector('.ytp-next-button')?.click()" in t
+                end repeat
+              end repeat
+            end tell
+          end if
+          if (name of processes) contains "Google Chrome" then
+            tell application "Google Chrome"
+              repeat with w in windows
+                repeat with t in tabs of w
+                  if URL of t contains "youtube.com/watch" then execute t javascript "document.querySelector('.ytp-next-button')?.click()"
+                end repeat
+              end repeat
+            end tell
+          end if
+        end tell
+      `;
+      await run('osascript', ['-e', nextVideoScript]).catch(() => {});
+    }
+    const msg = turnLang === 'bn' ? 'পরের ভিডিও বাজাচ্ছি...' : 'Playing next video...';
+    speakLine(msg);
+    return msg;
+  }
+
+  return null;
+}
+
 function detectMediaAction(turnWords) {
   if (!turnWords || typeof turnWords !== 'string') return null;
   const t = turnWords.toLowerCase();
@@ -1608,6 +1759,15 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
   if (turnLang !== config.replyLang) speech.setLocalLanguage?.(turnLang);
   // What they said, word for word, for the handoffs below (a heavy model, a background agent). System lines aren't theirs.
   turnWords = news || intro || String(text).startsWith('(') ? '' : String(text);
+  if (turnWords) {
+    const directCmd = detectDirectCommand(turnWords);
+    if (directCmd) {
+      const replyMsg = await handleDirectCommand(directCmd, turnLang);
+      lastReply = replyMsg;
+      menu();
+      return;
+    }
+  }
   nextMessageLearn(turnWords);
   skillsUsed.clear();
   // Retrying after a usage limit: the unanswered message is dropped from the conversation, and the next model is told.
