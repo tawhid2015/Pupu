@@ -123,18 +123,6 @@ export function forProvider(messages, from, to) {
   return messages.map((m) => (m.role === 'assistant' && Array.isArray(m.content) ? { ...m, content: m.content.filter((p) => p.type !== 'thinking') } : m));
 }
 
-// A text-only chat model can't take pictures: older turns that still carry one become a plain note. This is only for
-// the main model when it can't see images (a separate vision model writes a report for the current picture instead).
-const BLIND_IMAGE = '[A screenshot or picture was attached here. This model reads only the vision model\'s written report, so the picture itself is not included.]';
-export function withoutImages(messages) {
-  const strip = (content) => (Array.isArray(content) ? content.map((p) => (p?.type === 'image' ? { type: 'text', text: BLIND_IMAGE } : p)) : content);
-  return messages.map((m) => {
-    if (m.role === 'tool') return { ...m, content: m.content.map((r) => ({ ...r, content: strip(r.content) })) };
-    if (m.role === 'user' && Array.isArray(m.content) && m.content.some((p) => p?.type === 'image')) return { ...m, content: strip(m.content) };
-    return m;
-  });
-}
-
 // ---------- context budget ----------
 
 const textLen = (c) => (typeof c === 'string' ? c.length : Array.isArray(c) ? c.reduce((n, p) => n + (p?.type === 'image' ? 6000 : (p?.text ?? p?.content ?? '').length + JSON.stringify(p?.args ?? '').length), 0) : 0);

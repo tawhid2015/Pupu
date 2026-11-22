@@ -15,13 +15,11 @@ const probe = { endpoint: OLLAMA, reachable: true, models: [
 ] };
 
 const found = localModels([probe, { endpoint: { ...OLLAMA, id: 'other' }, reachable: false, models: [model('x')] }]);
-assert.deepEqual(found.map((m) => m.id), ['local/ollama/qwen3.5:4b', 'local/ollama/llama3:8b', 'local/ollama/moondream:2b', 'local/ollama/gemma4:12b'], 'every chat model from servers that answered');
-const byId = Object.fromEntries(found.map((m) => [m.id, m]));
-assert.equal(byId['local/ollama/llama3:8b'].supportsImages, false, 'a text-only model can still be the main model');
-assert.equal(byId['local/ollama/moondream:2b'].supportsTools, false, 'an image-only model is for the vision slot, not the main one');
+assert.deepEqual(found.map((m) => m.id), ['local/ollama/qwen3.5:4b', 'local/ollama/gemma4:12b'], 'only models that see images and use tools, from servers that answered');
 for (const m of found) {
   assert.equal(m.provider, 'local');
   assert.deepEqual(m.authStorageKeys, ['local:ollama']);
+  assert.equal(m.supportsImages, true);
 }
 assert.equal(OLLAMA_KEY, 'local:ollama');
 assert.equal(OLLAMA.baseUrl, 'http://127.0.0.1:11434/v1');
@@ -43,11 +41,11 @@ const up = await connectLocal(auth, OLLAMA, { save: true, windows: measured, pro
 assert.equal(up.ok, true);
 assert.equal(up.all, 4);
 assert.deepEqual(saved, [['ollama', 'http://127.0.0.1:11434/v1']]);
-assert.deepEqual(getModelsForProvider('local').map((m) => m.id), ['local/ollama/qwen3.5:4b', 'local/ollama/llama3:8b', 'local/ollama/moondream:2b', 'local/ollama/gemma4:12b']);
+assert.deepEqual(getModelsForProvider('local').map((m) => m.id), ['local/ollama/qwen3.5:4b', 'local/ollama/gemma4:12b']);
 assert.equal(getModel('local/ollama/qwen3.5:4b').contextWindow, 32768);
 assert.deepEqual(getAuthStorageKeys('local', 'local/ollama/qwen3.5:4b'), ['local:ollama'], 'the model runs on the saved Ollama credential');
 await connectLocal(auth, OLLAMA, { probe: async () => ({ ...probe, models: probe.models.slice(1) }) });
-assert.deepEqual(getModelsForProvider('local').map((m) => m.id), ['local/ollama/llama3:8b', 'local/ollama/moondream:2b', 'local/ollama/gemma4:12b'], 'a removed model leaves the menu');
+assert.deepEqual(getModelsForProvider('local').map((m) => m.id), ['local/ollama/gemma4:12b'], 'a removed model leaves the menu');
 assert.equal(saved.length, 1, 'a rescan saves nothing');
 
 // Too small a window gets a plain warning with the fix.
@@ -130,10 +128,10 @@ forgetLocal('ollama');
 assert.deepEqual(getModelsForProvider('local'), []);
 
 // What each server's row says.
-assert.match(noModelsNote(OLLAMA, 3), /ollama pull llama3\.2/);
-assert.match(noModelsNote(LMSTUDIO, 2), /None of the models in LM Studio can chat/);
+assert.match(noModelsNote(OLLAMA, 3), /ollama pull qwen3-vl:8b/);
+assert.match(noModelsNote(LMSTUDIO, 2), /None of the models in LM Studio can see images/);
 assert.match(noModelsNote(LMSTUDIO, 0), /no models yet/);
-assert.match(noModelsNote(gpu, 2), /GPU box isn't serving a chat model/);
+assert.match(noModelsNote(gpu, 2), /GPU box.*Its models can see images/);
 for (const x of [OLLAMA, LMSTUDIO, gpu]) for (const n of [0, 2]) assert.ok(noModelsNote(x, n, true).length <= 50, "a row's note fits on one line");
 assert.match(downNote(gpu, 'Not running at http://10.0.0.5:8000/v1'), /GPU box isn't running at http:\/\/10\.0\.0\.5:8000\/v1/);
 assert.equal(downNote(LMSTUDIO, 'Not running'), "LM Studio isn't running.");

@@ -574,21 +574,11 @@
     const on = state.providers.filter((p) => p.on);
     const model = state.model ? `${state.model.provider}:${state.model.id}` : '';
     const select = on.length ? el('span', { className: 'px field select' },
-      el('select', { 'aria-label': 'Main model', 'data-k': 'model', on: { change: (e) => act(`model:${e.target.value}`) } },
+      el('select', { 'aria-label': 'Model', 'data-k': 'model', on: { change: (e) => act(`model:${e.target.value}`) } },
         model ? null : el('option', { value: '', textContent: 'Pick a model', disabled: true, selected: true }),
         modelOptgroups(model))) : null;
-    // The vision model reads screenshots and pictures; the main model still writes every reply. Local models only.
-    const vision = state.vision ?? { model: '', models: [], note: '' };
-    const visionSelect = vision.models?.length ? el('span', { className: 'px field select' },
-      el('select', { 'aria-label': 'Vision model', 'data-k': 'vision', on: { change: (e) => act(`vision:${e.target.value}`) } },
-        el('option', { value: '', textContent: 'Pick a vision model', disabled: true, selected: !vision.model }),
-        vision.models.map((m) => el('option', {
-          value: `local:${m.id}`, textContent: m.name, selected: `local:${m.id}` === vision.model,
-        })))) : null;
     // The accounts, then each local server (Ollama, LM Studio, the ones added) and the Add a server row.
     const servers = state.localServers ?? [];
-    // The vision slot is for local models only; it is worth showing once a local server is connected.
-    const showVision = vision.models?.length > 0 || state.providers.some((p) => p.id === 'local' && p.on);
     if (ui.addSent != null && servers.length > ui.addSent) { ui.addSent = null; ui.add = { label: '', url: '', key: '', images: false }; if (ui.key === ADD) ui.key = null; }
     const accounts = [...state.providers.filter((p) => p.id !== 'local' && (p.on || p.method)), ...servers.map((x) => ({ ...x, server: true })), { id: ADD, add: true }];
     const { box, nav } = paged('accounts', accounts, (p) => (p.add ? addServerRow() : p.server ? serverRow(p) : el('li', { className: `acct${ui.key === p.id ? ' open' : ''}` },
@@ -610,18 +600,8 @@
     const t = pageTab('model', tabs, on.length ? 'default' : 'accounts');
     const head = el('div', { className: 'mhead' }, tabRow('Model', 'model-panel', tabs, t, (id) => { ui.tabs.model = id; }));
     if (t === 'accounts') return [head, tabPanel('model-panel', t, el('div', { className: 'group paged' }, el('div', { className: 'ghead' }, el('p', { textContent: 'Sign in to use their models.' })), box)), foot(null, nav)];
-    const mainSlot = on.length ? el('div', { className: 'slot' },
-      el('p', { className: 'sub', textContent: 'Model' }),
-      el('p', { className: 'why wrap', textContent: 'Main AI for conversation, language, tools and voice replies.' }),
-      select) : el('p', { className: 'empty', textContent: 'Sign in on the Accounts tab first.' });
-    const visionSlot = showVision ? el('div', { className: 'slot' },
-      el('p', { className: 'sub', id: 'lbl-vision-model', textContent: 'Vision model' }),
-      el('p', { className: 'why wrap', textContent: 'Dedicated AI for analyzing images and screenshots.' }),
-      visionSelect ?? el('span', { className: 'why', textContent: 'No vision model installed in Ollama' }),
-      vision.note ? el('p', { className: 'why wrap', role: 'status', textContent: vision.note }) : null) : null;
     return [head, tabPanel('model-panel', t, ...(t === 'hybrid' ? [hybrid] : t === 'crew' ? [crew] : t === 'backups' ? [backups] : [group(null, 'Which AI answers you.', null,
-      mainSlot,
-      visionSlot,
+      select ?? el('p', { className: 'empty', textContent: 'Sign in on the Accounts tab first.' }),
       effortRow('default', model, true),
       toggle('Lite mode', 'For small or local models. Fewer features.', state.lite, () => act('lite'), 'lite'))]))];
   }

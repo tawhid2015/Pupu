@@ -17,18 +17,10 @@ export const MIN_CONTEXT = 32_768;
 // The window gg-core gives a model of this size (room for the prompt on small windows).
 export const withWindow = (info, contextWindow) => ({ ...info, contextWindow, maxOutputTokens: Math.max(512, Math.min(4096, Math.floor(contextWindow / 4))) });
 
-/**
- * Chat models Roamies can use. A model that only reads text is still useful as the main model when a separate vision
- * model is picked (screenshots are summarized before the main model sees them). A model that only sees images is
- * offered for the vision slot, never as the main model. `windows`: measured contexts by id.
- */
+/** Models Roamies can run: it reads screenshots and drives tools, so both are needed. `windows`: measured contexts by id. */
 export const localModels = (probes, windows = new Map()) => probes.filter((p) => p.reachable).flatMap((p) => p.models
-  .filter((m) => m.supportsImages || m.supportsTools)
-  .map((m) => {
-    const info = toModelInfo(m, p.endpoint);
-    const withCap = { ...info, supportsTools: m.supportsTools };
-    return !m.contextWindowKnown && windows.has(info.id) ? withWindow(withCap, windows.get(info.id)) : withCap;
-  }));
+  .filter((m) => m.supportsImages && m.supportsTools)
+  .map((m) => { const info = toModelInfo(m, p.endpoint); return !m.contextWindowKnown && windows.has(info.id) ? withWindow(info, windows.get(info.id)) : info; }));
 
 const okServer = (s) => s && typeof s === 'object' && typeof s.id === 'string' && /^[a-z0-9][a-z0-9-]{0,39}$/.test(s.id)
   && !BUILT_IN.some((b) => b.id === s.id) && typeof s.label === 'string' && typeof s.baseUrl === 'string';
@@ -106,12 +98,12 @@ export async function syncLocal(auth, servers, { windows, probe } = {}) {
 
 /** What to say when a server is connected but none of its models can be used. `short`: one line, for its row. */
 export function noModelsNote(server, all, short = false) {
-  if (short) return server.id === 'ollama' ? 'No chat models. Try: ollama pull llama3.2'
-    : server.id === 'lmstudio' ? 'No chat models in LM Studio.'
-    : all ? 'No chat models served.' : 'No models served.';
-  if (server.id === 'ollama') return "None of Ollama's models can chat. Get one with: ollama pull llama3.2, then connect it again.";
-  if (server.id === 'lmstudio') return all ? 'None of the models in LM Studio can chat.' : 'LM Studio has no models yet.';
-  return all ? `${server.label} isn't serving a chat model.` : `${server.label} isn't serving any models.`;
+  if (short) return server.id === 'ollama' ? 'None can see images. Try: ollama pull qwen3-vl:8b'
+    : server.id === 'lmstudio' ? 'None can see images. Get Qwen3-VL 8B in LM Studio.'
+    : all ? 'None marked as seeing images. Re-add to change.' : 'No models served.';
+  if (server.id === 'ollama') return "None of Ollama's models can see images. Get one with: ollama pull qwen3-vl:8b";
+  if (server.id === 'lmstudio') return all ? 'None of the models in LM Studio can see images. Download a vision model in LM Studio (Qwen3-VL 8B is a good start).' : 'LM Studio has no models yet. Download a vision model in LM Studio (Qwen3-VL 8B is a good start).';
+  return all ? `${server.label} didn't say its models can see images. If they can, remove it and add it again with "Its models can see images" on.` : `${server.label} isn't serving any models.`;
 }
 
 /** Why a server that's connected isn't answering, in plain words. */
