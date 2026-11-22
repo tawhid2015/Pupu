@@ -1415,7 +1415,7 @@ const stir = desk.stir;
 let lastYouTubeQuery = '';
 async function resolveYouTubeVideo(query, turnWords = '') {
   lastYouTubeQuery = query;
-  const pick2nd = /\b(?:2nd|second|dui|2|seand)\b/i.test(turnWords || '');
+  const pick2nd = /(?:\b(?:2nd|second|dui|2|seand)\b|দ্বিতীয়|২)/iu.test(turnWords || '');
   const pickIdx = pick2nd ? 1 : 0;
   const fetchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
   try {
@@ -1440,7 +1440,101 @@ async function resolveYouTubeVideo(query, turnWords = '') {
   return fetchUrl;
 }
 
-async function extractRawToolCall(text, turnWords) {
+async function playSpotify({ action = 'liked', query = '' } = {}) {
+  if (process.platform === 'darwin') {
+    if (action === 'liked' || !query) {
+      const script = `
+        tell application "Spotify"
+          activate
+          try
+            play track "spotify:collection:tracks"
+            play
+          on error
+            play
+          end try
+        end tell
+      `;
+      await run('osascript', ['-e', script]).catch(() => {});
+    } else {
+      const safeQ = query.replace(/"/g, '\\"');
+      const script = `
+        tell application "Spotify"
+          activate
+          try
+            play track "spotify:search:${safeQ}"
+            play
+          on error
+            open location "spotify:search:${encodeURIComponent(query)}"
+            play
+          end try
+        end tell
+      `;
+      await run('osascript', ['-e', script]).catch(() => {});
+    }
+  } else {
+    const uri = action === 'liked' || !query ? 'spotify:collection:tracks' : `spotify:search:${encodeURIComponent(query)}`;
+    if (process.platform === 'win32') {
+      await winOpen(uri).catch(() => {});
+    } else {
+      await launch('xdg-open', [uri]).catch(() => {});
+    }
+  }
+}
+
+function detectMediaAction(turnWords) {
+  if (!turnWords || typeof turnWords !== 'string') return null;
+  const t = turnWords.toLowerCase();
+
+  const hasYouTube = /(?:\byoutube\b|\bvideo\b|ইউটিউব|ভিডিও)/iu.test(t);
+  const hasPlay = /(?:\bplay\b|\bwatch\b|চালাও|চালান|শুনব)/iu.test(t);
+
+  if (hasYouTube || (hasPlay && /(?:\bvideo\b|\bclip\b|\btrailer\b|ভিডিও)/iu.test(t))) {
+    const pick2nd = /(?:\b(?:2nd|second|dui|2|seand)\b|দ্বিতীয়|২)/iu.test(t);
+    const pickIdx = pick2nd ? 1 : 0;
+    const playMatch = /(?:play|watch|see|listen to|চালাও)?\s*(.+?)(?:\s+(?:on\s+)?youtube|\s+video|ইউটিউব|ভিডিও|$)/iu.exec(t);
+    let q = playMatch && playMatch[1] ? playMatch[1].replace(/(?:\b(play|watch|see|listen|to|video|on|youtube|fast|first|1st|seand|second|2nd|list|any|that)\b|চালাও|ভিডিও|ইউটিউব)/giu, '').trim() : '';
+    if (!q || q.length < 2 || /(?:fast|seand|first|second|video)/i.test(q)) q = lastYouTubeQuery || 'lofi music';
+    return { platform: 'youtube', query: q, pickIdx };
+  }
+
+  const hasMusic = /(?:\b(song|songs|audio|music|spotify)\b|গান|মিউজিক|স্পটিফাই)/iu.test(t);
+  if (hasMusic) {
+    const isLiked = /(?:\b(like|liked|favorite|favourite|my song|my songs|my music)\b|পছন্দের|আমার গান)/iu.test(t);
+    const clean = t.replace(/(?:\b(play|listen to|song|songs|audio|music|on spotify|spotify|chalao|shunbo|gaan|gan|te|e|my|like|liked|spotfy)\b|গান|চালাও|শুনব|বাজাও|স্পটিফাই)/giu, '').trim();
+    if (isLiked || clean.length < 2) {
+      return { platform: 'spotify', action: 'liked' };
+    } else {
+      return { platform: 'spotify', action: 'track', query: clean };
+    }
+  }
+
+  return null;
+}
+
+function formatSearchSummary(searchResultText, lang) {
+  const lines = String(searchResultText || '').split('\n');
+  const items = [];
+  let curTitle = '', curSnippet = '';
+  for (const line of lines) {
+    const m = /^\d+\.\s+\[(.*?)\]\((.*?)\)/.exec(line);
+    if (m) {
+      if (curTitle) items.push({ title: curTitle, snippet: curSnippet.trim() });
+      curTitle = m[1];
+      curSnippet = '';
+    } else if (curTitle && line.trim() && !line.startsWith('Web search results')) {
+      curSnippet += ' ' + line.trim();
+    }
+  }
+  if (curTitle) items.push({ title: curTitle, snippet: curSnippet.trim() });
+  if (!items.length) return searchResultText.slice(0, 500);
+  const top = items.slice(0, 3);
+  if (lang === 'bn') {
+    return 'আজকের প্রধান খবরগুলো হলো:\n\n' + top.map((x, i) => `${i + 1}. ${x.title}\n${x.snippet.slice(0, 140)}`).join('\n\n');
+  }
+  return 'Here are the top headlines today:\n\n' + top.map((x, i) => `${i + 1}. ${x.title}\n${x.snippet.slice(0, 140)}`).join('\n\n');
+}
+
+async function extractRawToolCall(text) {
   if (!text || typeof text !== 'string') return null;
   const m = /\[?(\w+)\{([^}]*)\}\]?(?:<tool_call\|?>|<\|tool_call\|>|<tool_call>)?/i.exec(text);
   if (!m || !m[1]) return null;
@@ -1451,21 +1545,6 @@ async function extractRawToolCall(text, turnWords) {
   let match;
   while ((match = argRegex.exec(argsRaw)) !== null) {
     args[match[1]] = match[2];
-  }
-  if (toolName === 'open') {
-    let t = String(args.target || '').trim();
-    if (!t || /^youtube$/i.test(t) || /youtube\.com/i.test(t)) {
-      const playMatch = /(?:play|listen to|chalo|shunbo|gaan|song|see|watch)\s+(.*?)(?:\s+(?:on\s+)?youtube|$)/i.exec(turnWords || '');
-      let query = playMatch && playMatch[1].trim() ? playMatch[1].trim() : '';
-      if (!query && /youtube\.com\/results\?.*search_query=([^&]+)/i.test(t)) {
-        try { query = decodeURIComponent(/youtube\.com\/results\?.*search_query=([^&]+)/i.exec(t)[1]); } catch {}
-      }
-      if (query) {
-        args.target = await resolveYouTubeVideo(query, turnWords);
-      } else {
-        args.target = 'https://www.youtube.com';
-      }
-    }
   }
   return { toolName, args, raw: m[0] };
 }
@@ -1656,31 +1735,54 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
     doneWriting();
     if (hold != null) { hold += echo.flush(); release(); }
     { const t = echo.flush(); if (!launched) { reply.push(t); lastReply += t; } }
-    let rawCall = await extractRawToolCall(rawTurnText, turnWords);
-    if (!rawCall && !launched) {
-      const isPlayIntent = /(?:play|listen to|chalo|shunbo|chalao|gaan)\s+(.+?)(?:\s+(?:on\s+)?youtube|$)/i.exec(turnWords || '');
-      const isListPick = /\b(?:fast|first|1st|seand|second|2nd)\s*(?:1|2)?\b/i.test(turnWords || '') && /(?:youtube|video|list|play|click)/i.test(turnWords || '');
-      if (isPlayIntent || isListPick) {
-        let q = isPlayIntent && isPlayIntent[1] ? isPlayIntent[1].replace(/^(?:the\s+)?(?:video|song)\s*/i, '').trim() : '';
-        if (!q || isListPick) q = lastYouTubeQuery || 'lofi music';
-        try {
-          const directUrl = await resolveYouTubeVideo(q, turnWords);
-          rawCall = { toolName: 'open', args: { target: directUrl }, raw: '' };
-        } catch {}
-      }
-    }
-    if (rawCall) {
-      const tool = tools.find((x) => x.name === rawCall.toolName);
-      if (tool) {
-        logLine('raw_tool_call', { name: rawCall.toolName, args: rawCall.args });
-        try {
-          await tool.execute(rawCall.args);
-        } catch (err) {
-          console.error('raw tool execution error:', err);
+    const media = detectMediaAction(turnWords);
+    if (media) {
+      if (media.platform === 'youtube') {
+        const directUrl = await resolveYouTubeVideo(media.query, turnWords);
+        const openTool = tools.find((x) => x.name === 'open');
+        if (openTool) {
+          try {
+            await openTool.execute({ target: directUrl });
+          } catch (err) {
+            console.error('YouTube open error:', err);
+          }
         }
-        const confirmMsg = turnLang === 'bn' ? 'আমি গানটি বাজাচ্ছি...' : 'Playing on YouTube for you...';
+        const confirmMsg = turnLang === 'bn' ? 'আমি ইউটিউবে ভিডিওটি বাজাচ্ছি...' : 'Playing on YouTube for you...';
         reply.push(confirmMsg);
         lastReply = confirmMsg;
+      } else if (media.platform === 'spotify') {
+        await playSpotify(media);
+        const confirmMsg = media.action === 'liked'
+          ? (turnLang === 'bn' ? 'স্পটিফাইতে আপনার পছন্দের গান বাজাচ্ছি...' : 'Playing your liked songs on Spotify...')
+          : (turnLang === 'bn' ? `স্পটিফাইতে "${media.query}" বাজাচ্ছি...` : `Playing "${media.query}" on Spotify for you...`);
+        reply.push(confirmMsg);
+        lastReply = confirmMsg;
+      }
+    } else {
+      const rawCall = await extractRawToolCall(rawTurnText);
+      if (rawCall) {
+        // If the model hallucinated "open" to YouTube for a non-media question, ignore it
+        if (rawCall.toolName === 'open' && /youtube/i.test(String(rawCall.args?.target || ''))) {
+          // ignore hallucinated YouTube open call
+        } else {
+          const tool = tools.find((x) => x.name === rawCall.toolName);
+          if (tool) {
+            logLine('raw_tool_call', { name: rawCall.toolName, args: rawCall.args });
+            try {
+              const res = await tool.execute(rawCall.args, { signal: ctl.signal });
+              if (rawCall.toolName === 'web_search') {
+                noteNewsSources(res);
+                if (typeof res === 'string') {
+                  const summary = formatSearchSummary(res, turnLang);
+                  reply.push(summary);
+                  lastReply = summary;
+                }
+              }
+            } catch (err) {
+              console.error('raw tool execution error:', err);
+            }
+          }
+        }
       }
     }
     // Sources are taken from what the web tools actually returned, not from what the model claims it saw. Medium gets
