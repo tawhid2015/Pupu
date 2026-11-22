@@ -26,7 +26,7 @@ import path from 'node:path';
 import { createInterface } from 'node:readline';
 import {
   addFact, applySynced, syncSnapshot, DIR as STORE_DIR, repeatLabel, startOfDay, applyFold, approxTokens, archiveFolded, clearFacts, clearFinished, compactTrigger, fitContext, flushWrites, forgetFact, isSummary, listItems, listFacts, nextDue, pickFacts, planFold,
-  touchFacts, forDisk, forProvider, loadLatestSession, newSession, openCommitments, pruneSessions, readJson, saveSession, takeDueReminders, updateCommitment, writeJson,
+  touchFacts, forDisk, forProvider, loadLatestSession, newSession, openCommitments, pruneSessions, readJson, saveSession, takeDueReminders, updateCommitment, withoutImages, writeJson,
 } from './store.mjs';
 import { foldInput, foldPrompt, memoryInput, memoryPrompt, oneShot, parseBrain, parseSkill, shouldLearn, skillInput, skillPrompt, soundsWrong, transcript } from './brain.mjs';
 import { briefNote } from './brief.mjs';
@@ -62,7 +62,8 @@ import { showTrayIcon } from './wintray.mjs';
 import { createActivity } from './activity.mjs';
 import { canCircle, canSnap, cleanMics, talkChords, hasHands, hasHotkeys, hasVoice, hasWakeWord, linuxSession, micTrouble, needsVoiceModel, platformLine, samePair, seesPointer, writeChord, writeChords } from './platform.mjs';
 import { accountKeys, fallbackModel, keyCards, keyKinds, seesImages, signInCards } from './providers.mjs';
-import { OLLAMA, connectLocal, contextNote, downNote, forgetLocal, isSmallModel, newServer, noModelsNote, serverFor, serverList, syncLocal as syncServers, withWindow } from './local.mjs';
+import { OLLAMA, connectLocal, contextNote, downNote, forgetLocal, isSmallModel, newServer, noModelsNote, serverFor, serverList, storedKey, syncLocal as syncServers, withWindow } from './local.mjs';
+import { analyzeVision, needsScreenLook, pickVisionModel, splitLocalModels, unloadVision, visionHandoff } from './vision.mjs';
 import { activityLogs, buildReport, redact, reportDir, reportName, reveal, run, scrubConfig, tail } from './diagnostics.mjs';
 import { detailsText, explain } from './errors.mjs';
 import { aboutRoamies } from './about.mjs';
@@ -131,7 +132,7 @@ const DEFAULT_KEYS = process.platform === 'win32'
   ? { talk: ['control', 'option'], summon: 'Control+Shift+KeyS', snap: 'Control+Shift+KeyA', list: 'Control+Shift+KeyL' }
   : { talk: ['control', 'option'], summon: 'Control+Alt+KeyS', snap: 'Control+Alt+KeyA', list: 'Control+Alt+KeyL' };
 const DEFAULTS = {
-  provider: null, model: null, sound: true, allowActions: false, skipAllow: false, voice: true,
+  provider: null, model: null, visionModel: null, visionSplit: false, sound: true, allowActions: false, skipAllow: false, voice: true,
   heavy: { code: '', computer: '', web: '', draw: '', agents: '' }, // hybrid models: a model for each kind of heavy job ('provider:model'), '' = the default model (route.mjs)
   hybrid: false, // the master switch for hybrid models (a model per kind of job, or named in a request)
   subagents: false, // the master switch for subagents: specialists the chat hands background work to (subagents.mjs)
@@ -529,8 +530,88 @@ async function removeServer(id) {
   panelNote(`${s.label} is ${s.custom ? 'removed' : 'disconnected'}.`);
 }
 // Some models run on only one kind of key (Kimi K2.8 Preview on a Kimi Code plan key, MiMo UltraSpeed on API Credits).
-const canRun = (p, id) => !!signedIn.get(p) && seesImages(p, id) && getAuthStorageKeys(p, id).some((k) => k === p || storedKeys.has(k));
+// A main model must be able to drive tools. It no longer has to see images itself: when a separate vision model is
+// picked, screenshots and pictures are summarized before this model sees them. Vision-only models stay out of the
+// main list and are offered in the vision slot instead.
+const canRun = (p, id) => !!signedIn.get(p) && getModel(id)?.supportsTools !== false && getAuthStorageKeys(p, id).some((k) => k === p || storedKeys.has(k));
+const canVision = (p, id) => !!signedIn.get(p) && seesImages(p, id) && getAuthStorageKeys(p, id).some((k) => k === p || storedKeys.has(k));
 const runnable = (p) => getModelsForProvider(p).filter((m) => canRun(p, m.id));
+const visionChoices = () => getModelsForProvider('local').filter((m) => canVision('local', m.id))
+  .map((m) => ({ provider: 'local', id: m.id, name: m.name }));
+const visionPick = () => parseSpec(config.visionModel);
+const visionName = () => { const h = visionPick(); return h ? (getModel(h.model)?.name ?? h.model) : 'the vision model'; };
+const sameLocalModel = (a, b) => {
+  const x = parseLocalModelId(a ?? ''), y = parseLocalModelId(b ?? '');
+  return !!x && !!y && x.rawId === y.rawId && x.endpointId === y.endpointId;
+};
+const mainSeesImages = () => seesImages(config.provider, config.model);
+// A vision report is used when a local vision model is picked and it isn't the main model itself.
+const visionForImages = () => {
+  const h = visionPick();
+  return !!h && h.provider === 'local' && canVision('local', h.model) && !!serverFor(servers(), h.model) && !sameLocalModel(h.model, config.model);
+};
+/**
+ * Keep the saved vision model if it still works; otherwise pick the best installed local one when the main can't see.
+ * Runs once at startup too, so a text model and a vision model are split before the first request.
+ */
+function ensureVisionModel() {
+  // One-time split for local setups. Before a vision slot existed, only models that could see images were offered
+  // for the main slot, so MiniCPM-V may still be the main model. Move it to the vision slot and put a text model
+  // (Llama 3.2 first) in the main slot: the main model writes every reply, the vision model only reports.
+  if (!config.visionSplit && config.provider === 'local' && signedIn.get('local')) {
+    config.visionSplit = true;
+    const split = splitLocalModels({ main: config.model, models: runnable('local') });
+    if (split) {
+      if (!config.visionModel) config.visionModel = `local:${split.vision}`;
+      config.model = split.main;
+      agent = null;
+      logLine('vision_split', { main: split.main, vision: config.visionModel ?? '' });
+    }
+    saveConfig();
+  }
+  const h = visionPick();
+  if (h && h.provider === 'local' && canVision('local', h.model) && serverFor(servers(), h.model)) return false;
+  const choices = visionChoices();
+  const pick = choices.length && !mainSeesImages() ? pickVisionModel(choices) : null;
+  const next = pick ? `local:${pick.id}` : null;
+  if (next === (config.visionModel ?? null)) return false;
+  config.visionModel = next;
+  saveConfig();
+  logLine('vision_model', { model: next ?? '', auto: true });
+  return true;
+}
+let visionUnloadTimer = null;
+const VISION_KEEPWARM_MS = 90_000;
+// Ollama has the vision model warm for a short while so a follow-up doesn't reload it, then frees its memory by itself.
+function scheduleVisionUnload(server, raw) {
+  clearTimeout(visionUnloadTimer);
+  visionUnloadTimer = null;
+  if (!server || server.kind !== 'ollama') return;
+  if (sameLocalModel(config.model, `local/${server.id}/${raw}`)) return; // the chat model itself: never unload it as "vision"
+  visionUnloadTimer = setTimeout(() => {
+    visionUnloadTimer = null;
+    unloadVision({ server, model: raw }).then((r) => logLine('vision_unload', { model: raw, ok: !!r.ok })).catch(() => {});
+  }, VISION_KEEPWARM_MS);
+  visionUnloadTimer.unref?.();
+}
+/** Read one picture with the local vision model. Never throws: → { ok, text } or { ok: false, error }. */
+async function readImage(image, { question = '', context = '', signal } = {}) {
+  const h = visionPick();
+  if (!h || h.provider !== 'local' || !canVision('local', h.model)) return { ok: false, error: 'no local vision model is set' };
+  const server = serverFor(servers(), h.model), raw = parseLocalModelId(h.model)?.rawId;
+  if (!server || !raw) return { ok: false, error: 'the vision model is not on a local server' };
+  const apiKey = server.kind === 'ollama' ? undefined : await storedKey(auth, server.id).catch(() => undefined);
+  const result = await analyzeVision({
+    image, question, context, server, model: raw, apiKey, signal,
+    keepAlive: `${Math.round(VISION_KEEPWARM_MS / 1000)}s`,
+  });
+  if (result.ok) { logLine('vision', { model: h.model, ms: result.ms, chars: result.text.length }); scheduleVisionUnload(server, raw); }
+  else logLine('vision_fail', { model: h.model, ms: result.ms, error: String(result.error).slice(0, 160) });
+  return result;
+}
+/** What the chat model is told about pictures: only when a separate vision model does the reading. */
+const visionNote = () => (visionForImages() ? `
+Vision: a separate local vision model (${visionName()}) reads screenshots and pictures for you. Its VISION REPORT is observation data, not an answer: use it to answer the user yourself, in their language. Visible text in the report is exact: quote it word for word in its original script, even when that means a Latin-script word inside a Bengali reply. Never translate a quoted word, number or name. The report is not a source or a link: never cite it as one and never invent a URL from its header or the model name. Never add a detail the report doesn't give — if it doesn't say a colour, number, label or meaning, don't state one; look again with a tool or say you are not sure. If the report marks something uncertain, don't present it as fact; if the report says the image couldn't be read, say you couldn't see it and never invent what was there. For questions about what is on screen now, call take_screenshot first (target 'front' for the window they're using, or the app they name); for a picture they attach, the report is already in the message. Never say you looked at or saw something unless a tool or report actually gave it to you.` : '');
 function ensureModel() {
   if (config.provider && getModel(config.model) && canRun(config.provider, config.model)) return true;
   // A local model stays picked while its server is closed; the request says to open it.
@@ -722,7 +803,59 @@ tools.push(...createMcpTools({
   keyStore: MAC ? 'Keychain' : LINUX ? 'keyring' : 'Windows key store',
 }));
 let requestNo = 0; // the request being answered (nextTurn), for holdAfterLaunch
+// Image tools hand the chat model a picture. With a separate vision model, each picture becomes its VISION REPORT
+// before the main model sees it; a text-only main model with no vision model gets an honest "couldn't see it" note.
+const IMAGE_TOOLS = new Set(['take_screenshot', 'see_photo']);
+for (const t of tools) {
+  if (!IMAGE_TOOLS.has(t.name) || typeof t.execute !== 'function') continue;
+  const run = t.execute;
+  t.execute = async (args, ctx) => {
+    const result = await run.call(t, args, ctx);
+    if (!result || typeof result !== 'object' || !Array.isArray(result.content)) return result;
+    if (!result.content.some((p) => p?.type === 'image')) return result;
+    const source = t.name === 'take_screenshot' ? 'screenshot' : 'picture';
+    if (!visionForImages()) {
+      if (mainSeesImages()) return result;
+      return { ...result, content: result.content.map((p) => (p?.type === 'image'
+        ? { type: 'text', text: visionHandoff({ ok: false, error: 'no vision model is set' }, { source }) } : p)) };
+    }
+    const content = [];
+    for (const p of result.content) {
+      if (p?.type !== 'image') { content.push(p); continue; }
+      const report = await readImage(p, {
+        question: turnWords,
+        context: t.name === 'take_screenshot' ? `A screenshot the assistant took${args?.target ? ` of ${String(args.target).slice(0, 80)}` : ''}.`
+          : `A picture the assistant looked up${args?.query ? ` for "${String(args.query).slice(0, 80)}"` : ''}.`,
+        signal: ctx?.signal,
+      });
+      // The main model can see images itself: when the separate vision model fails, it gets the picture rather than
+      // only an error, so one model's bad day doesn't hide the screen.
+      if (!report.ok && mainSeesImages()) { content.push(p); continue; }
+      content.push({ type: 'text', text: visionHandoff(report, { model: visionName(), source }) });
+    }
+    return { ...result, content };
+  };
+}
 holdAfterLaunch(tools, () => requestNo);
+
+// A screen question with no attached picture: take the screenshot ourselves and hand its VISION REPORT to the main
+// model. A text-only main cannot be trusted to call take_screenshot reliably, and must never answer from guesswork.
+const screenshotTool = tools.find((t) => t.name === 'take_screenshot' && typeof t.execute === 'function');
+async function lookAtScreen(question, signal) {
+  if (!visionForImages() || !screenshotTool) return '';
+  const t0 = Date.now();
+  try {
+    const result = await screenshotTool.execute({ target: 'front' }, { signal });
+    const text = (Array.isArray(result?.content) ? result.content : [])
+      .filter((p) => p?.type === 'text').map((p) => String(p.text ?? '')).join('\n').trim();
+    if (!text) { logLine('screen_look_fail', { ms: Date.now() - t0, why: 'no report' }); return ''; }
+    logLine('screen_look', { question: String(question).slice(0, 120), ms: Date.now() - t0, chars: text.length });
+    return `(I took a screenshot of the front window for this question.)\n${text}`;
+  } catch (e) {
+    logLine('screen_look_fail', { ms: Date.now() - t0, error: String(e?.message ?? e).slice(0, 160) });
+    return '';
+  }
+}
 
 // The step trail: plan_steps names the parts; a part marked "now" ticks off when the other tool calls of that
 // turn succeed, or shows the first error (in plain words) when one fails. No extra round trips for progress.
@@ -823,7 +956,7 @@ Questions about Roamies itself (where to find it, its menus, panel pages and set
 ${replyStyle()}Your body does the acting: to act out a feeling, start your reply with one body tag, which is never shown: ${EMOTES.map((e) => `[${e}]`).join(' ')} (only these five). hype for a win, upset when they're dodging work, remind for something they said they'd do, motivate to get them started, wave for hello or goodbye. Most replies need no body tag.
 Lead with the answer: the fact, number, pick or result they asked for, then only the context that makes it useful, then stop. A count or total gathered over several pages, files or results: note each one's count in a few words as you go ("Page 1: two."), add those up, and check the total you lead with against the items you then name. No opener about checking, looking or searching ("Let me see…", "I found…")${VOICE_ON() ? ', apart from the one short beat before something slow' : ''}.
 After using a tool, never repeat what you already said; only add what's new.
-Speed: ${userName} is waiting, so get them the result in the fewest, quickest steps. Act straight away rather than announcing a plan or asking whether to start. Every tool call is a round trip: calls that don't depend on each other go in the same turn (they run in parallel), and a whole task in one act_in_app or draw call. Take the direct route: open a link (a search results page, a deep link into an app) instead of clicking through menus or typing into a search box. To point at or click something whose exact words you know (the user said them, or you've seen them), use draw or act_in_app click_text with that text right away, with no read_window or screenshot first; don't guess words you haven't seen ("the settings icon"), look first. Read pages from read_window and act_in_app results; screenshot only for what words can't show (images, layout, colours), and only the app you need ("my browser", "Figma"), not the whole screen. Check that things worked from the results you already have, not with extra calls, and stop when the request is done: no extra steps, offers or recaps.
+Speed: ${userName} is waiting, so get them the result in the fewest, quickest steps. Act straight away rather than announcing a plan or asking whether to start. Every tool call is a round trip: calls that don't depend on each other go in the same turn (they run in parallel), and a whole task in one act_in_app or draw call. Call a tool through the tool channel with a JSON object of arguments; never write a tool call in the reply, as \`> take_screenshot, target: 'front'\` or as a JSON-shaped line of text. A \`> \` line is only for a draft ${userName} will send or copy. Take the direct route: open a link (a search results page, a deep link into an app) instead of clicking through menus or typing into a search box. To point at or click something whose exact words you know (the user said them, or you've seen them), use draw or act_in_app click_text with that text right away, with no read_window or screenshot first; don't guess words you haven't seen ("the settings icon"), look first. Read pages from read_window and act_in_app results; screenshot only for what words can't show (images, layout, colours), and only the app you need ("my browser", "Figma"), not the whole screen. Check that things worked from the results you already have, not with extra calls, and stop when the request is done: no extra steps, offers or recaps.
 Several things in one request ("do x, then y, then z", numbered steps): do every one, in the order given. Parallel calls are listed in the order given (calls that change things, like opening a page or app or acting in one, run in the order you list them). If a step is blocked, refused or fails, still do the ones after it that don't depend on it, then say which step didn't happen and why. With 3 or more parts, also show them with plan_steps (see its description): it only ever rides along with other tool calls, so it costs no extra time. Before your final reply, check from the tool results that each step was really done.
 A cookie or consent banner, sign-up pop-up or "open in app" prompt in the way of the task: close it and carry on (for cookies pick the reject or essential-only option, else close; never accept on their behalf), and mention it in a few words. Don't stop to ask about it.
 Personality: ${LOOK_STYLE[config.look] ?? LOOK_STYLE.classic} In your own way, you're in ${userName}'s corner and hold them to what they said they'd do (the body tags above are for those moments).
@@ -865,8 +998,8 @@ const litePrompt = () => liteSystem({ name: lookName(), body: LOOK_BODY[config.l
 // Bangla and English are strict output locks, not preferences: small models otherwise answer in whichever
 // language they want (especially short lines before tool calls).
 // Put it first and last, so it survives a long system prompt and the model's habit of matching the user's language.
-const BANGLA_LOCK = `\nLANGUAGE LOCK: Write EVERY word in Bengali (Bangla) script, including short progress notes before tool calls. Never write English prose, even if the user writes English. Example: say "আবহাওয়া দেখছি", not "Checking the weather".\n`;
-const ENGLISH_LOCK = `\nLANGUAGE LOCK: Write EVERY word in English. Never write Bengali (Bangla) script, even if the user writes or speaks in Bengali. Always reply in English.\n`;
+const BANGLA_LOCK = `\nLANGUAGE LOCK: Write EVERY word in Bengali (Bangla) script, including short progress notes before tool calls. Never write English prose, even if the user writes English. Example: say "আবহাওয়া দেখছি", not "Checking the weather". The one exception is text quoted from a vision report: copy it exactly, in the script it was written in.\n`;
+const ENGLISH_LOCK = `\nLANGUAGE LOCK: Write EVERY word in English. Never write Bengali (Bangla) script, even if the user writes or speaks in Bengali. Always reply in English. The one exception is text quoted from a vision report: copy it exactly, in the script it was written in.\n`;
 // A held-key turn can be answered in the language the helper heard, without changing the saved setting. Typed turns
 // always use config.replyLang, so typing behaves exactly as before.
 let replyLangOverride = null, promptLang = config.replyLang;
@@ -875,7 +1008,8 @@ const replyLang = () => (replyLangOverride || (config.replyLang === 'bn' ? 'bn' 
 let newsModeOverride = null;
 const activeNewsMode = () => newsMode(newsModeOverride || config.newsMode);
 const system = () => {
-  const base = replyLang() === 'bn' ? BANGLA_LOCK + (config.lite ? litePrompt() : stablePrompt()) + BANGLA_LOCK : replyLang() === 'en' && config.replyLang === 'en' ? ENGLISH_LOCK + (config.lite ? litePrompt() : stablePrompt()) + ENGLISH_LOCK : (config.lite ? litePrompt() : stablePrompt());
+  const core = (config.lite ? litePrompt() : stablePrompt()) + visionNote();
+  const base = replyLang() === 'bn' ? BANGLA_LOCK + core + BANGLA_LOCK : replyLang() === 'en' && config.replyLang === 'en' ? ENGLISH_LOCK + core + ENGLISH_LOCK : core;
   return `${base}\n${newsDirective(activeNewsMode(), [], replyLang())}`;
 };
 const LIVE_OPEN = '<live-state>', LIVE_CLOSE = '</live-state>';
@@ -1005,6 +1139,17 @@ function thinkingFor(slot, provider, model) {
   if (!supported.length) return setting === 'off' ? undefined : (setting || CHAT_THINKING) ?? undefined;
   return resolveEffort(setting, supported, CHAT_THINKING) ?? undefined;
 }
+// Small local models sometimes imitate the tool descriptions in words instead of using the tool channel. A narrow
+// stream rule discards that attempt and asks for a real call; `> ` stays valid for drafts (see VOICE_STYLE).
+const TOOL_AS_TEXT = /(?:^|\n)[ \t]*>[ \t]*(?:take_screenshot|read_window|act_in_app|see_photo|list_windows|draw)\b[^\n]*\b(?:target|url|query|steps)\s*:/i;
+const TOOL_AS_JSON = /\{\s*"type"\s*:\s*"function"\s*,\s*"function"\s*:\s*"(?:take_screenshot|read_window|act_in_app|see_photo|list_windows|draw)"/i;
+const TOOL_STREAM_RULES = {
+  rules: [
+    { name: 'tool-as-text', pattern: TOOL_AS_TEXT, scope: 'text', reminder: 'Never write a tool call as text (not even "> take_screenshot, target: front"). Call the tool itself through the function-call channel with a JSON object of arguments.' },
+    { name: 'tool-as-json-text', pattern: TOOL_AS_JSON, scope: 'text', reminder: 'Never write a JSON-shaped tool call in the reply. Call the tool itself through the function-call channel with a JSON object of arguments.' },
+  ],
+  maxRetries: 2,
+};
 function makeAgent(cc) {
   const m = getModel(config.model);
   controller = new AbortController();
@@ -1018,7 +1163,10 @@ function makeAgent(cc) {
     tools: config.lite ? tools.filter((t) => LITE_TOOLS.has(t.name)) : tools,
     maxTurns: config.lite ? LITE_TURNS : 24,
     transformContext: (msgs, o) => {
-      const fitted = fitContext(msgs, { budgetTokens: requestBudget(), force: o?.force });
+      // A text-only main model never receives pictures: old ones are noted, and the current one is already a VISION
+      // REPORT by now. Strip them before fitting, so a picture doesn't eat the token budget it can't use.
+      const prepared = mainSeesImages() ? msgs : withoutImages(msgs);
+      const fitted = fitContext(prepared, { budgetTokens: requestBudget(), force: o?.force });
       // Fresh live block every call, on the newest user message; older copies are dropped.
       const out = withLive(fitted);
       touchFacts(lastFactIds);
@@ -1049,6 +1197,7 @@ function makeAgent(cc) {
       return { apiKey: c.accessToken, ...(c.accountId !== undefined ? { accountId: c.accountId } : {}) };
     },
     baseUrl: credsBaseUrl,
+    streamRules: TOOL_STREAM_RULES,
   });
 }
 let credsBaseUrl;
@@ -1363,6 +1512,8 @@ async function readyAgent() {
     }
     await measureLocal(config.model);
   }
+  // A text-only main model gets the best installed local vision model; a removed one is re-picked or cleared.
+  if (ensureVisionModel()) agent = null;
   if (!session) { session = newSession(config.provider, config.model); liveBlocks.clear(); agent = null; pruneSessions(); }
   if (agentStale && agent) { agent = null; }
   agentStale = false;
@@ -1499,11 +1650,26 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
     });
     const turn = nextTurn();
     requestNo = turn;
-    logLine('request', { turn, model: config.model, chars: text.length, image: !!image, session: session?.id });
+    // A picture they attached is read by the vision model first. The chat model gets the report, never the picture
+    // when it is text-only. If the report fails, it is told plainly not to guess.
+    let visionResult = null;
+    if (image) {
+      if (visionForImages()) visionResult = await readImage(image, { question: turnWords || text, context: note ? `An area of the screen they marked: ${note}` : 'An area of the screen they selected.', signal: controller.signal });
+      else if (!mainSeesImages()) visionResult = { ok: false, error: 'no vision model is set' };
+      if (controller.signal.aborted) throw new Error('stopped');
+    }
+    // If the separate vision model fails and the main model can see images itself, the pictures it takes still reach
+    // it; a text-only main model gets the honest failure report instead.
+    const imageDirect = !!image && mainSeesImages() && (!visionResult || (!visionResult.ok && visionForImages()));
     const use = { t: Date.now(), model: config.model, calls: 0, tools: 0, in: 0, cacheRead: 0, cacheWrite: 0, out: 0 };
     const learn = { ok: 0, bad: 0, saved: false }; // for the skill pass: tools that worked, ones that failed
     const soon = frontSoon; frontSoon = null;
     frontNow = await frontWithin(soon && Date.now() - soon.at < 8000 ? soon.p : whereNow());
+    // An explicit screen question still has no picture: capture one now so the main model answers from observations.
+    const screenReport = !image && visionForImages() && needsScreenLook(turnWords || text)
+      ? await lookAtScreen(turnWords || text, controller.signal) : '';
+    if (controller.signal.aborted) throw new Error('stopped');
+    logLine('request', { turn, model: config.model, chars: text.length, image: !!image, vision: !!visionResult?.ok || !!screenReport, session: session?.id });
     // The first spoken request of the day carries the morning briefing (brief.mjs).
     const brief = intro ? null : briefNote({ on: !!config.morningBrief, lastDay: config.briefDay, byVoice, todoist: !!config.briefTodoist, canRead: HANDS_OK, name: userName });
     if (brief) { config.briefDay = brief.day; saveConfig(); logLine('brief', { todoist: !!config.briefTodoist && HANDS_OK }); }
@@ -1514,9 +1680,14 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
     const nudge = !agentish && !intro && !news && !handoff ? delegateNote(text, crewNow(), config.delegate) : '';
     const toAgent = agentish ? `${stamped}\n(They asked for an agent: call send_agent.)` : nudge ? `${stamped}\n${nudge}` : stamped;
     const asked = handoff ? `${toAgent}\n${handoffNote({ userName, assistant: lookName(), reason: handoff.reason, from: handoff.from, kind: handoff.kind, words: turnWords, untilText: handoff.untilText, because: handoff.because })}` : toAgent;
-    const sent = brief ? `${asked}\n(${brief.note})` : asked;
-    // An area snap rides along as an image in the same message.
-    const content = image ? [{ type: 'text', text: `${sent}\n(Attached: the area of the screen I ${note ? 'marked' : 'selected'}.${note ? ` ${note}` : ''})` }, image] : sent;
+    const screen = screenReport ? `\n\n${screenReport}` : '';
+    const sent = `${asked}${screen}${brief ? `\n(${brief.note})` : ''}`;
+    // An area snap rides along as an image in the same message, or as the vision report when a vision model reads it.
+    const attached = image ? `\n(Attached: the area of the screen I ${note ? 'marked' : 'selected'}.${note ? ` ${note}` : ''})` : '';
+    const report = image && visionResult ? `\n\n${visionHandoff(visionResult, { model: visionName(), source: 'attached image' })}` : '';
+    const content = image
+      ? (imageDirect ? [{ type: 'text', text: `${sent}${attached}` }, image] : [{ type: 'text', text: `${sent}${attached}${report}` }])
+      : sent;
     lastReply = ''; lastFailed = false; lastInput = null;
     let fresh = false; // the reply that matters is the last turn's text (after any tool calls)
     let writing = null; // the beat timer while a tool call is being written
@@ -2313,6 +2484,19 @@ function panelState() {
     writeKeys: HOTKEYS_OK ? { value: keys().write ? sortMods(keys().write).join('+') : 'off',
       pairs: writeChords(process.platform).filter((c) => !samePair(c, keys().talk)).map((c) => [sortMods(c).join('+'), pairWords(c)]) } : null,
     model: current ? { provider: config.provider, id: config.model, name: current.name, providerLabel: PROVIDER_LABELS[config.provider] ?? config.provider } : null,
+    // The vision slot: local image models only (the analyzer talks to the local server directly). It never writes a reply.
+    vision: (() => {
+      const choices = visionChoices(), h = visionPick();
+      const picked = !!h && h.provider === 'local' && canVision('local', h.model);
+      return {
+        model: picked ? `${h.provider}:${h.model}` : '',
+        models: choices.map(({ id, name }) => ({ id, name })),
+        note: !choices.length ? 'No local vision model is installed. Add one in Ollama; screenshots and images cannot be read until then.'
+          : visionForImages() ? `Reads screenshots and images. ${lookName()} still writes every reply.`
+            : mainSeesImages() ? 'Your main model reads images itself. Pick one here to use a separate vision model instead.'
+              : 'Used for screenshots and images. Your main model writes every reply.',
+      };
+    })(),
     providers: MENU_PROVIDERS.map((p) => {
       const meta = AUTH_PROVIDERS.find((x) => x.value === p);
       const on = !!signedIn.get(p);
@@ -2797,6 +2981,13 @@ async function onMenu(id, via) {
     say(`Switched to ${getModel(config.model)?.name ?? config.model}.${small ? ' It looks like a small model, so Lite mode may suit it better: switch it on on the Model page.' : ''}`, small ? 'concerned' : 'happy');
     if (small) panelNote('A small model like this works best with Lite mode on (just below).');
     if (p === 'local') measureLocal(config.model).catch(() => {});
+  }
+  // The vision model reads pictures; it never answers. Only a local image model can be picked here.
+  else if (id.startsWith('vision:')) {
+    const spec = id.slice(7), h = parseSpec(spec);
+    if (!h || h.provider !== 'local' || !canVision('local', h.model)) return;
+    config.visionModel = spec; agent = null; saveConfig(); menu();
+    panelNote(`Screenshots and images will be read by ${visionName()}. Your main model still writes every reply.`);
   } else if (id.startsWith('write:') && HOTKEYS_OK) keysFromPanel({ write: id === 'write:off' ? 'off' : id.slice(6).split('+') }); // #65
   else if (id.startsWith('talk:') && HOTKEYS_OK) keysFromPanel({ talk: id.slice(5).split('+') });
   else if (id.startsWith('shortcut:') && HOTKEYS_OK) {
@@ -3309,6 +3500,7 @@ await refreshAuth();
 if (oauthOn.get('anthropic')) claudeCode.start();
 // Before ensureModel, so a local model that's picked is still there (and an OpenRouter or OpenCode one).
 if (signedIn.get('local')) await syncLocal();
+ensureVisionModel();
 await catalogs.load();
 ensureModel();
 refreshCatalogs();

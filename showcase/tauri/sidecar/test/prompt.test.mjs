@@ -12,7 +12,8 @@ assert.ok(!/point_at/.test(side), 'no point_at left in the prompt');
 // Bangla is a strict output lock: it goes at both ends of the prompt, and covers pre-tool progress lines. Small
 // models otherwise answer an English question in English, and the built-in Bangla voice then reads English text.
 assert.match(side, /const BANGLA_LOCK = `[\s\S]*LANGUAGE LOCK: Write EVERY word in Bengali[\s\S]*progress notes before tool calls[\s\S]*Never write English prose[\s\S]*`/, 'Bangla prompt lock covers pre-tool lines');
-assert.match(side, /const base = replyLang\(\) === 'bn' \? BANGLA_LOCK \+ \(config\.lite \? litePrompt\(\) : stablePrompt\(\)\) \+ BANGLA_LOCK/, 'the lock wraps both the full and lite prompts');
+assert.match(side, /const core = \(config\.lite \? litePrompt\(\) : stablePrompt\(\)\) \+ visionNote\(\)/, 'the full and lite prompts both carry the vision note');
+assert.match(side, /const base = replyLang\(\) === 'bn' \? BANGLA_LOCK \+ core \+ BANGLA_LOCK/, 'the lock wraps both the full and lite prompts');
 assert.match(side, /if \(replyLang\(\) !== 'bn' \|\| hasBengali\(t\)\) voice\.say\(t\)/, 'English model output never reaches the Bangla voice');
 assert.match(side, /const soundLine = \(en, bn\) => \(config\.replyLang === 'bn' \? bn : en\)/, 'the app\'s own spoken notes follow the reply language');
 assert.match(side, /with draw/, 'the prompt says when to draw');
