@@ -1743,6 +1743,60 @@ async function addTodoistTask(token, content) {
   return await res.json();
 }
 
+async function closeTodoistTask(token, taskId) {
+  if (!token || !taskId) return;
+  const res = await fetch(`https://api.todoist.com/api/v1/tasks/${taskId}/close`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Todoist close failed: ' + res.status);
+}
+
+async function deleteTodoistTask(token, taskId) {
+  if (!token || !taskId) return;
+  const res = await fetch(`https://api.todoist.com/api/v1/tasks/${taskId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Todoist delete failed: ' + res.status);
+}
+
+let todoistTasksCache = [];
+let todoistLastFetch = 0;
+
+async function syncTodoistTasks(force = false) {
+  if (!config.todoistToken) {
+    todoistTasksCache = [];
+    return [];
+  }
+  if (!force && Date.now() - todoistLastFetch < 30_000 && todoistTasksCache.length) {
+    return todoistTasksCache;
+  }
+  try {
+    const list = await fetchTodoistTasks(config.todoistToken);
+    todoistTasksCache = list.map((t) => {
+      let dueMs = null;
+      if (t.due?.date) {
+        dueMs = new Date(t.due.date + (t.due.date.length === 10 ? 'T23:59:59' : '')).getTime();
+      }
+      return {
+        id: `todoist:${t.id}`,
+        todoistId: t.id,
+        text: t.content,
+        due: dueMs,
+        when: t.due ? (t.due.string ? (t.due.is_recurring ? `repeats ${t.due.string}` : t.due.string) : (dueMs ? fmtWhen(dueMs) : 'Todoist')) : 'Todoist',
+        overdue: !!(dueMs && dueMs < Date.now()),
+        repeat: t.due?.is_recurring ? (t.due.string || 'daily') : null,
+        isTodoist: true
+      };
+    });
+    todoistLastFetch = Date.now();
+    return todoistTasksCache;
+  } catch (err) {
+    return todoistTasksCache;
+  }
+}
+
 function detectTodoistRequest(turnWords, token) {
   if (!turnWords || typeof turnWords !== 'string') return null;
   const t = turnWords.toLowerCase();
@@ -2735,9 +2789,26 @@ const shortWhen = (ms, now = Date.now()) => {
 function showList({ seconds = 0, flash = null, toggle = false } = {}) {
   const now = Date.now(), L = listItems(now);
   const fmt = (i) => ({ id: i.id, text: i.text, done: i.done, overdue: i.overdue, when: i.due ? `${shortWhen(i.due, now)}${i.repeat ? ' ↻' : ''}` : '' });
-  ui({ kind: 'list', today: L.today.map(fmt), later: L.later.map(fmt), seconds, flash, toggle });
+  const todoistItems = todoistTasksCache.map((t) => ({
+    id: t.id,
+    text: t.text,
+    done: false,
+    overdue: t.overdue,
+    when: t.when ? `${t.when}${t.repeat ? ' ↻' : ''}` : ''
+  }));
+  ui({ kind: 'list', today: [...L.today.map(fmt), ...todoistItems], later: L.later.map(fmt), seconds, flash, toggle });
 }
 async function toggleItem(id) {
+  if (id.startsWith('todoist:')) {
+    const todoistTaskId = id.slice(8);
+    await closeTodoistTask(config.todoistToken, todoistTaskId).catch(() => {});
+    await syncTodoistTasks(true).catch(() => {});
+    panel();
+    menu();
+    showList({ flash: id, seconds: 4 });
+    say('Completed Todoist task!', 'happy');
+    return;
+  }
   const c = listItems().today.concat(listItems().later).find((i) => i.id === id);
   if (!c) return;
   await updateCommitment(id, { status: c.done ? 'open' : 'done' });
@@ -2894,7 +2965,10 @@ function panelState() {
     jobs: listJobs().map(jobRow),
     connections: mcp.status(),
     skills: listSkills().map((k) => ({ slug: k.slug, name: k.name, description: k.description })), learnSkills: config.learnSkills !== false,
-    commitments: openCommitments().map((c) => ({ id: c.id, text: c.text, due: c.due ?? null, when: c.due ? `${fmtWhen(c.due)}${c.repeat ? ` · repeats ${repeatLabel(c.repeat)}` : ''}` : '', overdue: !!(c.due && c.due < Date.now()), repeat: c.repeat ?? null })),
+    commitments: [
+      ...openCommitments().map((c) => ({ id: c.id, text: c.text, due: c.due ?? null, when: c.due ? `${fmtWhen(c.due)}${c.repeat ? ` · repeats ${repeatLabel(c.repeat)}` : ''}` : '', overdue: !!(c.due && c.due < Date.now()), repeat: c.repeat ?? null })),
+      ...todoistTasksCache.map((t) => ({ id: t.id, text: t.text, due: t.due ?? null, when: t.when ? `${t.when} [Todoist]` : 'Todoist', overdue: t.overdue, repeat: t.repeat ?? null }))
+    ],
     look: config.look ?? 'classic', looks: LOOKS.map(([id, label]) => [id, label]), name: lookName(),
     size: sizeNow(), sizes: SIZES,
     replies: VOICE_ON() ? 'voice' : 'text', tts: tts().id, replyLang: config.replyLang || 'en', newsMode: activeNewsMode(), fixAskStyle: config.fixAskStyle !== false, fishKey: hasVoiceKey('fish'), geminiKey: hasVoiceKey('gemini'),
@@ -3277,11 +3351,38 @@ async function onMenu(id, via) {
     if (ok?.trim().toUpperCase() === 'FORGET') { const n = await clearFacts(); menu(); say(`Done. I forgot ${n} thing${n === 1 ? '' : 's'} about you.`, 'concerned'); }
   } else if (id.startsWith('done:') || id.startsWith('drop:')) {
     const done = id.startsWith('done:');
-    updateCommitment(id.slice(5), { status: done ? 'done' : 'dropped' }).then((c) => {
-      menu(); showList({ flash: c?.id, seconds: 4 });
-      if (c && done) ui({ kind: 'agent', e: { type: 'emote', action: 'hype' } }), say(c.advanced ? `Done: ${c.text}. See you again ${shortWhen(c.due)}!` : `Done: ${c.text}. That's what I'm talking about!`, 'happy');
-      scheduleReminders();
-    });
+    const targetId = id.slice(5);
+    if (targetId.startsWith('todoist:')) {
+      const todoistTaskId = targetId.slice(8);
+      if (done) {
+        closeTodoistTask(config.todoistToken, todoistTaskId).then(async () => {
+          await syncTodoistTasks(true);
+          panel();
+          menu();
+          showList({ seconds: 4 });
+          ui({ kind: 'agent', e: { type: 'emote', action: 'hype' } });
+          say('Done! Marked Todoist task as complete.', 'happy');
+        }).catch((err) => {
+          panelNote('Failed to complete Todoist task: ' + err.message, true);
+        });
+      } else {
+        deleteTodoistTask(config.todoistToken, todoistTaskId).then(async () => {
+          await syncTodoistTasks(true);
+          panel();
+          menu();
+          showList({ seconds: 4 });
+          say('Removed task from Todoist.', 'happy');
+        }).catch((err) => {
+          panelNote('Failed to remove Todoist task: ' + err.message, true);
+        });
+      }
+    } else {
+      updateCommitment(targetId, { status: done ? 'done' : 'dropped' }).then((c) => {
+        menu(); showList({ flash: c?.id, seconds: 4 });
+        if (c && done) ui({ kind: 'agent', e: { type: 'emote', action: 'hype' } }), say(c.advanced ? `Done: ${c.text}. See you again ${shortWhen(c.due)}!` : `Done: ${c.text}. That's what I'm talking about!`, 'happy');
+        scheduleReminders();
+      });
+    }
   }
   // The language talking is recognised in (macOS): the helper switches engine when Apple's newer one lacks the language.
   else if (id.startsWith('speechlang:') && MAC) {
@@ -3425,16 +3526,18 @@ async function onMenu(id, via) {
         config.todoistToken = val;
         config.briefTodoist = true;
         saveConfig();
+        await syncTodoistTasks(true);
         panel();
         menu();
         panelNote('Todoist API token saved.');
-        say('Connected to Todoist! Your tasks will be included in the morning briefing.', 'happy');
+        say('Connected to Todoist! Your tasks are synced.', 'happy');
       }
     }
   }
   else if (id === 'todoist:remove' && HANDS_OK) {
     config.todoistToken = '';
     config.briefTodoist = false;
+    todoistTasksCache = [];
     saveConfig();
     panel();
     menu();
@@ -3799,7 +3902,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   let m;
   try { m = JSON.parse(line); } catch { return; }
   if (m.type === 'menu') onMenu(m.id, m.via).catch((e) => console.error('menu', e));
-  else if (m.type === 'panel_open') { panelOpen = true; panelAt = Date.now(); logLine('panel_open', {}); if (VOICE_OK) send({ type: 'voice_mics' }); Promise.all([refreshAuth(), signedIn.get('local') && syncLocal(), tts().local && speech.checkLocal()]).catch(() => {}).finally(() => { panel(); refreshCatalogs(); }); }
+  else if (m.type === 'panel_open') { panelOpen = true; panelAt = Date.now(); logLine('panel_open', {}); if (VOICE_OK) send({ type: 'voice_mics' }); Promise.all([refreshAuth(), signedIn.get('local') && syncLocal(), tts().local && speech.checkLocal(), config.todoistToken && syncTodoistTasks(true)]).catch(() => {}).finally(() => { panel(); refreshCatalogs(); }); }
   else if (m.type === 'diagnostics') { shellInfo?.(m); shellInfo = null; }
   else if (m.type === 'panel_closed') { panelOpen = false; logLine('panel_closed', { why: String(m.why ?? ''), ms: Date.now() - panelAt }); }
   else if (m.type === 'panel_key' && typeof m.provider === 'string' && typeof m.key === 'string') {
@@ -3927,6 +4030,7 @@ function scheduleReminders() {
   }, wait);
 }
 scheduleReminders();
+if (config.todoistToken) syncTodoistTasks(true).catch(() => {});
 
 // Scheduled jobs (jobs.mjs): at its time each one starts a background agent, with the usual safety checks and Allow
 // prompts; what it finds comes back as agent news (desk.tick). A recurring job carries on in its last run's folder.
