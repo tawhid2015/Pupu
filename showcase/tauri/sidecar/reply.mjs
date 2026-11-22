@@ -12,7 +12,7 @@ const norm = (s) => s.replace(/\s+/g, ' ').trim().toLowerCase();
 // handed over as a transcript. It's never something to show or say (in brackets the voice took it as a cue and read
 // it out). Dropped from the stream, also when it comes split across chunks or mid-line.
 const ECHO_STARTS = ['[called ', 'Tool use: ', 'Tool result: '];
-const ECHO_LINE = /^[ \t]*(?:\[called [\w.-]+(?: [^\n]*)?\]|Tool (?:use|result): [^\n]*|\[?[\w.-]+\{[^}]*\}\]?(?:<tool_call\|?>|<\|tool_call\|>|<tool_call>)|.*<tool_call\|?>|<tool_call\|?>)[ \t]*$/i;
+const ECHO_LINE = /^[ \t]*(?:\[called [\w.-]+(?: [^\n]*)?\]|Tool (?:use|result): [^\n]*|\[?[\w.-]+\s*\{[^}]*\}\]?(?:<tool_call\|?>|<\|tool_call\|>|<tool_call>)?|.*<tool_call\|?>|<tool_call\|?>)[ \t]*$/i;
 export class EchoFilter {
   constructor() { this.buf = ''; }
   push(text) {
@@ -36,23 +36,26 @@ export class EchoFilter {
     }
   }
   /** At the end of a turn: what's held goes out, unless it's an echo. */
-  flush() { const b = this.buf; this.buf = ''; return ECHO_LINE.test(b) || b.includes('<tool_call') ? '' : b; }
+  flush() {
+    const b = this.buf;
+    this.buf = '';
+    return ECHO_LINE.test(b) || b.includes('<tool_call') || /\[?[\w.-]+\s*\{[^}]*\}/.test(b) ? '' : b;
+  }
   #echoAt(line, open) {
     const i = line.indexOf('[called ');
     if (i >= 0) return i;
-    const tc = line.search(/\[?[\w.-]+\{[^}]*\}\]?(?:<tool_call\|?>|<\|tool_call\|>|<tool_call>)|<tool_call\|?>/i);
-    if (tc >= 0) return tc;
     const t = line.replace(/^[ \t]+/, '');
     if (ECHO_STARTS.some((s) => s !== '[called ' && t.startsWith(s))) return line.length - t.length;
+    const tc = line.search(/\[?[\w.-]+\s*\{[^}]*\}\]?(?:<tool_call\|?>|<\|tool_call\|>|<tool_call>)?|<tool_call\|?>/i);
+    if (tc >= 0 && (line.includes('<tool_call') || line.includes('}'))) return tc;
     // An unfinished line that could still become one: hold its tail.
     if (open) {
       for (const s of ECHO_STARTS) for (let k = Math.min(s.length - 1, line.length); k > 0; k--) {
         const tail = line.slice(line.length - k);
         if (s.startsWith(tail) && (s === '[called ' || !line.slice(0, line.length - k).trim())) return line.length - k;
       }
-      if (/\[?\w+\{/.test(line) || line.includes('<tool_call') || line.includes('<|tool_call')) {
-        return line.search(/\[?\w+\{|<tool_call|<\|tool_call/);
-      }
+      const m = line.search(/\[[a-zA-Z0-9_-]*$|\[?[a-zA-Z0-9_-]+\s*\{|<tool_call|<\|tool_call/i);
+      if (m >= 0) return m;
     }
     return -1;
   }

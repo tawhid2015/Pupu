@@ -1412,7 +1412,35 @@ const desk = newsDesk({
   signedIn: () => signedIn.size > 0 && [...signedIn.values()].some(Boolean),
 });
 const stir = desk.stir;
-function extractRawToolCall(text, turnWords) {
+let lastYouTubeQuery = '';
+async function resolveYouTubeVideo(query, turnWords = '') {
+  lastYouTubeQuery = query;
+  const pick2nd = /\b(?:2nd|second|dui|2|seand)\b/i.test(turnWords || '');
+  const pickIdx = pick2nd ? 1 : 0;
+  const fetchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(fetchUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    });
+    clearTimeout(timer);
+    const html = await res.text();
+    const matches = [...html.matchAll(/\/watch\?v=([a-zA-Z0-9_-]{11})/g)].map((m) => m[1]);
+    const unique = [...new Set(matches)];
+    if (unique.length > 0) {
+      const idx = Math.min(Math.max(0, pickIdx), unique.length - 1);
+      return `https://www.youtube.com/watch?v=${unique[idx]}`;
+    }
+  } catch {}
+  return fetchUrl;
+}
+
+async function extractRawToolCall(text, turnWords) {
   if (!text || typeof text !== 'string') return null;
   const m = /\[?(\w+)\{([^}]*)\}\]?(?:<tool_call\|?>|<\|tool_call\|>|<tool_call>)?/i.exec(text);
   if (!m || !m[1]) return null;
@@ -1426,10 +1454,14 @@ function extractRawToolCall(text, turnWords) {
   }
   if (toolName === 'open') {
     let t = String(args.target || '').trim();
-    if (!t || /^youtube$/i.test(t)) {
-      const playMatch = /play\s+(.*?)\s+(?:on\s+)?youtube/i.exec(turnWords || '');
-      if (playMatch && playMatch[1].trim()) {
-        args.target = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(playMatch[1].trim());
+    if (!t || /^youtube$/i.test(t) || /youtube\.com/i.test(t)) {
+      const playMatch = /(?:play|listen to|chalo|shunbo|gaan|song|see|watch)\s+(.*?)(?:\s+(?:on\s+)?youtube|$)/i.exec(turnWords || '');
+      let query = playMatch && playMatch[1].trim() ? playMatch[1].trim() : '';
+      if (!query && /youtube\.com\/results\?.*search_query=([^&]+)/i.test(t)) {
+        try { query = decodeURIComponent(/youtube\.com\/results\?.*search_query=([^&]+)/i.exec(t)[1]); } catch {}
+      }
+      if (query) {
+        args.target = await resolveYouTubeVideo(query, turnWords);
       } else {
         args.target = 'https://www.youtube.com';
       }
@@ -1624,7 +1656,19 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
     doneWriting();
     if (hold != null) { hold += echo.flush(); release(); }
     { const t = echo.flush(); if (!launched) { reply.push(t); lastReply += t; } }
-    const rawCall = extractRawToolCall(rawTurnText, turnWords);
+    let rawCall = await extractRawToolCall(rawTurnText, turnWords);
+    if (!rawCall && !launched) {
+      const isPlayIntent = /(?:play|listen to|chalo|shunbo|chalao|gaan)\s+(.+?)(?:\s+(?:on\s+)?youtube|$)/i.exec(turnWords || '');
+      const isListPick = /\b(?:fast|first|1st|seand|second|2nd)\s*(?:1|2)?\b/i.test(turnWords || '') && /(?:youtube|video|list|play|click)/i.test(turnWords || '');
+      if (isPlayIntent || isListPick) {
+        let q = isPlayIntent && isPlayIntent[1] ? isPlayIntent[1].replace(/^(?:the\s+)?(?:video|song)\s*/i, '').trim() : '';
+        if (!q || isListPick) q = lastYouTubeQuery || 'lofi music';
+        try {
+          const directUrl = await resolveYouTubeVideo(q, turnWords);
+          rawCall = { toolName: 'open', args: { target: directUrl }, raw: '' };
+        } catch {}
+      }
+    }
     if (rawCall) {
       const tool = tools.find((x) => x.name === rawCall.toolName);
       if (tool) {
@@ -1634,7 +1678,7 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
         } catch (err) {
           console.error('raw tool execution error:', err);
         }
-        const confirmMsg = turnLang === 'bn' ? 'আমি ইউটিউব খুলছি...' : 'Opening YouTube for you...';
+        const confirmMsg = turnLang === 'bn' ? 'আমি গানটি বাজাচ্ছি...' : 'Playing on YouTube for you...';
         reply.push(confirmMsg);
         lastReply = confirmMsg;
       }

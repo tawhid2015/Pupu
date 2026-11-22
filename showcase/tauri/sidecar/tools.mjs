@@ -1031,6 +1031,24 @@ A drawing stays until the user clears it or the window changes; your next drawin
         // A bare web address ("example.com", "www.bbc.co.uk/news") is a link, not an app name: it used to fail as
         // "Unable to find application named example.com" and cost a retry. App bundles ("Notes.app") stay apps.
         if (/^(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:[/?#]\S*)?$/i.test(t) && !/\.app$/i.test(t)) t = `https://${t}`;
+        if (/^https?:\/\/(?:www\.)?youtube\.com\/results\?.*search_query=/i.test(t)) {
+          try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 2500);
+            const res = await fetch(t, {
+              signal: controller.signal,
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9',
+              },
+            });
+            clearTimeout(timer);
+            const html = await res.text();
+            const matches = [...html.matchAll(/\/watch\?v=([a-zA-Z0-9_-]{11})/g)].map((m) => m[1]);
+            const unique = [...new Set(matches)];
+            if (unique.length > 0) t = `https://www.youtube.com/watch?v=${unique[0]}`;
+          } catch {}
+        }
         const isFile = /^[~/.]/.test(t) && await fs.stat(expand(t)).then((s) => s.isFile() && (s.mode & 0o111) !== 0, () => false);
         allowed(checkOpen(t, HOME, { executable: isFile }));
         agentChangesScreen();

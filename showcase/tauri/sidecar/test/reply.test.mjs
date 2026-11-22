@@ -46,6 +46,8 @@ assert.equal(r.text, 'Your video is due at 2pm.'); assert.deepEqual(r.emotes, ['
     assert.equal(filter('Tool use: draw {"beats":[]}\nDone.', n), 'Done.', `new transcript form, chunk ${n}`);
     assert.equal(filter('Press [Cmd] and [called] it a day. Tool use is fun.', n), 'Press [Cmd] and [called] it a day. Tool use is fun.', `ordinary text, chunk ${n}`);
     assert.equal(filter('[warm] Hi there.\n- Tools: use the hammer', n), '[warm] Hi there.\n- Tools: use the hammer', `cues and lists stay, chunk ${n}`);
+    assert.equal(filter('[open{target:<|"|>YouTube<|"|>}]<tool_call|>', n), '', `gemma raw tool call, chunk ${n}`);
+    assert.equal(filter('Opening now.\n[open{target:"YouTube"}]<tool_call|>\nDone.', n), 'Opening now.\nDone.', `gemma tool call with text, chunk ${n}`);
   }
 }
 console.log('reply stream tests: all passed');
