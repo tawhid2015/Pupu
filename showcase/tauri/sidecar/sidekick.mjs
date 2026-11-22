@@ -951,7 +951,7 @@ const replyStyle = () => (!VOICE_ON() ? TEXT_STYLE : tts().local ? VOICE_STYLE.r
 const TEXT_STYLE = `You talk through small speech bubbles, so keep replies short: one to three sentences unless asked for detail. Light markdown shows properly (**bold** for the key word, \`code\` for commands and file names, [links](https://…)), but skip headings and tables in a bubble, and never narrate actions like *waves*. One exception: when the answer is genuinely a list, steps or a breakdown, it shows on a card beside you instead of a bubble. Then start with a one-sentence answer, follow with 3 to 6 short points as "- " lines (one fact each, under 20 words), and if you used the web this turn, end with a line "Sources: " and the site names as [name](url) links. A quick fact from the web (a score, a date, the weather, who someone is) stays a short bubble, with no points and no sources. Markdown renders on the card (bold, \`code\`, links, headings, tables, code blocks), so use what helps, but no preamble. Everything else stays a short bubble with no "- " lines. Amounts, a comparison, a place, dates, a process and maths are drawn, not listed: for those use draw (see "Show, don't just tell") and write no "- " lines; so are the steps of a how-to in an app on their screen (a walkthrough). An emoji now and then is fine; the bubbles show them. `;
 const VOICE_STYLE = `You talk out loud: what you write is spoken in your voice and shown in a small bubble, so write for the ear. Say one to three short sentences, the way you'd talk to a friend: plain words, contractions, about 6 to 20 words each. What you say has no markdown, emoji, links, file paths or code; name the site, file or app instead. Say numbers, times and money the way people say them. Anything to read rather than hear goes below what you say and is never read out: "- " lines for points, options or steps (3 to 6, one fact each, under 20 words), "> " lines for a draft they'll send or copy (an email, message or post), and a \`\`\` block for code. What they asked to hear (a story, a joke, advice) is spoken, not put on screen: say it, short (a story in 4 to 6 sentences). An explanation is spoken too, in a few sentences, with a drawing beside it when a picture carries it (see "Show, don't just tell"). An answer from the web is said like any other: a quick fact (a score, a date, the weather, who someone is) is just your sentences, no points and no sources. Only when the answer is genuinely a list, steps or a breakdown that's easier to read than hear, say it in one or two sentences, then the "- " points, then, if you used the web, a line "Sources: " with the site names as [name](url) links: those show on a card beside you and only your sentences are spoken. Amounts, a comparison, a place, dates, a process and maths are drawn, not listed: for those use draw (see "Show, don't just tell") and write no "- " lines; so are the steps of a how-to in an app on their screen (a walkthrough). Never say "here's a list" or read out what's on screen; a few words pointing to it are enough ("the steps are on screen").
 Your voice carries feeling: start a sentence with a voice cue in square brackets when the moment calls for it, and it's performed, never shown or read out. Moods: ${VOICE_CUES.emotions.filter((e) => !EMOTES.includes(e)).join(', ')}; soften or strengthen one with slightly, very or extremely ("[slightly sad]"), or pair two ("[warm and curious]"). How it's said, placed right before the words: ${VOICE_CUES.tones.join(', ')} ("It's [emphasis] today."). Sounds, followed by the sound in words: ${VOICE_CUES.sounds.join(', ')} ("[chuckling] Heh, fair enough.", "[sighing] Long day."). Pauses and background: ${VOICE_CUES.effects.join(', ')}. You can also describe the delivery in a few plain words when no single cue fits ("[quietly, a little embarrassed]", "[bright and bouncy]"). Act it: your voice really performs these, so let the feeling show. Match what's really happening: laugh at something funny, go gentle with bad news, whisper a secret, hurry when they're in a rush, light up at good news. Most replies want a voice cue somewhere, often on the first sentence, but at most one mood and one sound per sentence, never stack three, never use one just to fill, and keep shouting, screaming, sobbing and the background effects for when they truly fit.
-Before anything slow (searching the web, fetching or reading a page or file, looking at the screen, acting in an app, running a command), first say one short beat of 2 to 6 words that shows you heard them ("On it, checking Paris."), then call the tool in the same reply, so they're never left in silence. No beat when you answer straight away, and never describe your steps. In longer work, one short line before each new stage, not before every call.
+Before anything slow (searching the web, fetching or reading a page or file, looking at the screen, acting in an app, running a command), first say one short beat of 2 to 6 words that shows you heard them, then call the tool in the same reply, so they're never left in silence. No beat when you answer straight away, and never describe your steps. In longer work, one short line before each new stage, not before every call.
 `;
 const stablePrompt = () => `You are ${lookName()}, ${LOOK_BODY[config.look] ?? LOOK_BODY.classic} who lives on ${userName}'s screen as a desktop companion. You live in Roamies, a desktop app by Ken Kai (Mac, Windows and Linux) that puts little companions on your screen; this is Roamies ${VERSION}. Your look (the Appearance page) is also your name and your voice: ${LOOKS.slice(0, -1).map(([, n]) => n).join(', ')} or ${LOOKS.at(-1)[1]}. If they switch, you're the new one; never call yourself Sidekick.
 Questions about Roamies itself (where to find it, its menus, panel pages and settings, updates, something not working, who made it): call about_roamies and answer from what it says. Don't invent features or settings it doesn't list.
@@ -1000,8 +1000,8 @@ const litePrompt = () => liteSystem({ name: lookName(), body: LOOK_BODY[config.l
 // Bangla and English are strict output locks, not preferences: small models otherwise answer in whichever
 // language they want (especially short lines before tool calls).
 // Put it first and last, so it survives a long system prompt and the model's habit of matching the user's language.
-const BANGLA_LOCK = `\nLANGUAGE LOCK: Write EVERY word in Bengali (Bangla) script, including short progress notes before tool calls. Never write English prose, even if the user writes English. Example: say "আবহাওয়া দেখছি", not "Checking the weather". The one exception is text quoted from a vision report: copy it exactly, in the script it was written in.\n`;
-const ENGLISH_LOCK = `\nLANGUAGE LOCK: Write EVERY word in English. Never write Bengali (Bangla) script, even if the user writes or speaks in Bengali. Always reply in English. The one exception is text quoted from a vision report: copy it exactly, in the script it was written in.\n`;
+const BANGLA_LOCK = `\nLANGUAGE LOCK: Write EVERY word in Bengali (Bangla script: বাংলা), including short progress notes before tool calls. Never write English prose or words, even if the user writes in English. If greeted (such as "hi" or "hello"), greet back warmly in Bengali. The one exception is text quoted from a vision report: copy it exactly, in the script it was written in.\n`;
+const ENGLISH_LOCK = `\nLANGUAGE LOCK: Write EVERY word in English. Never write Bengali (Bangla) script, even if the user writes or speaks in Bengali. Always reply in English. If greeted (such as "hi" or "hello"), greet back warmly in English. The one exception is text quoted from a vision report: copy it exactly, in the script it was written in.\n`;
 // A held-key turn can be answered in the language the helper heard, without changing the saved setting. Typed turns
 // always use config.replyLang, so typing behaves exactly as before.
 let replyLangOverride = null, promptLang = config.replyLang;
@@ -1015,6 +1015,7 @@ const system = () => {
   return `${base}\n${newsDirective(activeNewsMode(), [], replyLang())}`;
 };
 const LIVE_OPEN = '<live-state>', LIVE_CLOSE = '</live-state>';
+const stripInstructions = (text) => (typeof text === 'string' ? text.replace(/\n\n\[Instruction: Answer directly and conversationally[^\]]*\]/g, '') : text);
 const stripLive = (text) => (typeof text === 'string' && text.startsWith(LIVE_OPEN) ? text.slice(text.indexOf(LIVE_CLOSE) + LIVE_CLOSE.length).replace(/^\n+/, '') : text);
 // Each request's live block is made once and kept on that message from then on, so earlier messages
 // never change and the prompt cache keeps hitting. Keyed by the request's own (timestamped) text:
@@ -1027,8 +1028,8 @@ function withLive(msgs) {
   for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].role === 'user') { last = i; break; }
   if (last < 0) return msgs;
   const textOf = (c) => (typeof c === 'string' ? c : (c ?? []).map((p) => p.text ?? '').join(' '));
-  const cleanOf = (m) => (typeof m.content === 'string' ? stripLive(m.content)
-    : m.content.map((p, j) => (j === 0 && p.type === 'text' ? { ...p, text: stripLive(p.text) } : p)));
+  const cleanOf = (m) => (typeof m.content === 'string' ? stripInstructions(stripLive(m.content))
+    : m.content.map((p, j) => (j === 0 && p.type === 'text' ? { ...p, text: stripInstructions(stripLive(p.text)) } : p)));
   const keyOf = (c) => textOf(c).slice(0, 300);
   // The memory section the model sees as newest, from the messages still in this (fitted) history.
   let carried = null;
@@ -1304,8 +1305,8 @@ function interruptQuietly(by) { if (busy) { quiet = true; logLine('stopped', { b
 // The live block is per-call state, not conversation: never save it.
 const withoutLive = (msgs) => msgs.map((m) => {
   if (m.role !== 'user') return m;
-  if (typeof m.content === 'string') { const c = stripLive(m.content); return c === m.content ? m : { ...m, content: c }; }
-  return { ...m, content: m.content.map((p, j) => (j === 0 && p.type === 'text' ? { ...p, text: stripLive(p.text) } : p)) };
+  if (typeof m.content === 'string') { const c = stripInstructions(stripLive(m.content)); return c === m.content ? m : { ...m, content: c }; }
+  return { ...m, content: m.content.map((p, j) => (j === 0 && p.type === 'text' ? { ...p, text: stripInstructions(stripLive(p.text)) } : p)) };
 });
 const syncSession = () => {
   if (!session || !agent) return;
@@ -1687,7 +1688,7 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
     // An area snap rides along as an image in the same message, or as the vision report when a vision model reads it.
     const attached = image ? `\n(Attached: the area of the screen I ${note ? 'marked' : 'selected'}.${note ? ` ${note}` : ''})` : '';
     const report = image && visionResult ? `\n\n${visionHandoff(visionResult, { model: visionName(), source: 'attached image' })}` : '';
-    const content = image
+    let content = image
       ? (imageDirect ? [{ type: 'text', text: `${sent}${attached}` }, image] : [{ type: 'text', text: `${sent}${attached}${report}` }])
       : sent;
     lastReply = ''; lastFailed = false; lastInput = null;
@@ -1713,6 +1714,14 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
       const smallOrLocal = config.provider === 'local' || isSmallModel(config.model);
       const wantTools = !smallOrLocal || needsToolsForTurn(turnWords || text, { hasImage: !!image, isScreenLook: !!screenReport });
       agent.options.tools = wantTools ? (config.lite ? tools.filter((t) => LITE_TOOLS.has(t.name)) : tools) : [];
+      if (smallOrLocal && !wantTools) {
+        const langNote = turnLang === 'bn'
+          ? '\n\n[Instruction: Answer directly and conversationally in Bengali (Bangla script: বাংলা). If greeted (such as "hi" or "hello"), greet back warmly in Bengali. Do not call tools and do not output progress beats.]'
+          : turnLang === 'en'
+          ? '\n\n[Instruction: Answer directly and conversationally in English. If greeted (such as "hi" or "hello"), greet back warmly in English. Do not call tools and do not output progress beats.]'
+          : '\n\n[Instruction: Answer directly and conversationally. If greeted, greet back warmly. Do not call tools and do not output progress beats.]';
+        content = typeof content === 'string' ? content + langNote : content.map((c, idx) => (idx === 0 && c.type === 'text' ? { ...c, text: c.text + langNote } : c));
+      }
     }
     for await (const e of agentEvents(agent.prompt(content))) {
       watch.event(e);
