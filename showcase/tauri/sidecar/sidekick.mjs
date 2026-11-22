@@ -1840,8 +1840,8 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
     const soon = frontSoon; frontSoon = null;
     frontNow = await frontWithin(soon && Date.now() - soon.at < 8000 ? soon.p : whereNow());
     // The first spoken request of the day carries the morning briefing (brief.mjs).
-    const brief = intro ? null : briefNote({ on: !!config.morningBrief, lastDay: config.briefDay, byVoice, todoist: !!config.briefTodoist, canRead: HANDS_OK, name: userName });
-    if (brief) { config.briefDay = brief.day; saveConfig(); logLine('brief', { todoist: !!config.briefTodoist && HANDS_OK }); }
+    const brief = intro ? null : briefNote({ on: !!config.morningBrief, lastDay: config.briefDay, byVoice, todoist: !!config.briefTodoist, canRead: HANDS_OK, token: config.todoistToken, name: userName });
+    if (brief) { config.briefDay = brief.day; saveConfig(); logLine('brief', { todoist: (!!config.briefTodoist && (HANDS_OK || !!config.todoistToken)) }); }
     const onScreen = [takeQuizNote(), ink.listNote()].filter(Boolean).join(' '); // a quiz's score, lists changed on their cards
     // They spoke first: untold news rides along with their message, so it's never announced separately afterwards.
     const along = desk.along(text, { intro: !!intro, news: !!news, agentish });
@@ -2809,7 +2809,7 @@ function panelState() {
         recording: dictationCapture.active, captured: dictationCapture.captured ? dictationShortcutLabel(dictationCapture.captured) : '', conflict: dictationCapture.error,
       } : null,
     } : null,
-    sound: !!config.sound, actions: !!config.allowActions, skipAllow: !!config.skipAllow, lite: !!config.lite, hybrid: { on: !!config.hybrid, jobs: JOB_KINDS.map((j) => ({ ...j, value: parseSpec(config.heavy?.[j.kind])?.spec ?? '' })), active: routed?.spec ?? '' }, subagents: { on: !!config.subagents, delegate: DELEGATE_MODES.includes(config.delegate) ? config.delegate : 'ask', crew: SUBAGENTS.map((s) => { const c = activeCrew(config.crew, runnableSpec, hybridActive() ? config.heavy : null).find((x) => x.id === s.id); return { id: s.id, label: s.label, hint: s.hint, value: parseSpec(config.crew?.[s.id])?.spec ?? '', via: c?.via ?? '', uses: c?.spec.spec ?? '' }; }) }, efforts: Object.fromEntries(SLOTS.map((k) => [k, config.efforts?.[k] ?? ''])), fallbacks: { on: !!config.backups, slots: [0, 1].map((i) => parseSpec(config.fallbacks?.[i])?.spec ?? ''), limited: limits.list().filter((l) => !l.key.includes(':') && (isQuota(l.kind) || l.kind === 'busy')).map((l) => ({ label: PROVIDER_LABELS[l.key] ?? l.key, until: l.until })), unavailable: limits.list().filter((l) => !(isQuota(l.kind) || l.kind === 'busy')).map((l) => ({ label: PROVIDER_LABELS[l.key] ?? modelName(l.key.split(':').slice(1).join(':')) ?? l.key, why: becauseOf(l.kind), until: l.until })), using: routed && /^backup/.test(routed.slot ?? '') ? routed.spec : '' }, notch: notchMode(), notchReal: notchScreen, brief: { on: !!config.morningBrief, todoist: !!config.briefTodoist, canTodoist: HANDS_OK }, focus: HANDS_OK ? { until: focusBlock?.until ?? null, task: focusBlock?.task ?? '', list: distractionList(), custom: !!config.distractions } : null, sync: { dir: config.syncDir || '', at: syncInfo.at, error: syncInfo.error, paused: !!syncInfo.paused }, gameMode: HANDS_OK ? config.gameSidebar !== false : null,
+    sound: !!config.sound, actions: !!config.allowActions, skipAllow: !!config.skipAllow, lite: !!config.lite, hybrid: { on: !!config.hybrid, jobs: JOB_KINDS.map((j) => ({ ...j, value: parseSpec(config.heavy?.[j.kind])?.spec ?? '' })), active: routed?.spec ?? '' }, subagents: { on: !!config.subagents, delegate: DELEGATE_MODES.includes(config.delegate) ? config.delegate : 'ask', crew: SUBAGENTS.map((s) => { const c = activeCrew(config.crew, runnableSpec, hybridActive() ? config.heavy : null).find((x) => x.id === s.id); return { id: s.id, label: s.label, hint: s.hint, value: parseSpec(config.crew?.[s.id])?.spec ?? '', via: c?.via ?? '', uses: c?.spec.spec ?? '' }; }) }, efforts: Object.fromEntries(SLOTS.map((k) => [k, config.efforts?.[k] ?? ''])), fallbacks: { on: !!config.backups, slots: [0, 1].map((i) => parseSpec(config.fallbacks?.[i])?.spec ?? ''), limited: limits.list().filter((l) => !l.key.includes(':') && (isQuota(l.kind) || l.kind === 'busy')).map((l) => ({ label: PROVIDER_LABELS[l.key] ?? l.key, until: l.until })), unavailable: limits.list().filter((l) => !(isQuota(l.kind) || l.kind === 'busy')).map((l) => ({ label: PROVIDER_LABELS[l.key] ?? modelName(l.key.split(':').slice(1).join(':')) ?? l.key, why: becauseOf(l.kind), until: l.until })), using: routed && /^backup/.test(routed.slot ?? '') ? routed.spec : '' }, notch: notchMode(), notchReal: notchScreen, brief: { on: !!config.morningBrief, todoist: !!config.briefTodoist, canTodoist: HANDS_OK, hasToken: !!config.todoistToken, tokenMask: config.todoistToken ? '••••' + config.todoistToken.slice(-4) : '' }, focus: HANDS_OK ? { until: focusBlock?.until ?? null, task: focusBlock?.task ?? '', list: distractionList(), custom: !!config.distractions } : null, sync: { dir: config.syncDir || '', at: syncInfo.at, error: syncInfo.error, paused: !!syncInfo.paused }, gameMode: HANDS_OK ? config.gameSidebar !== false : null,
     login: login.supported ? { on: login.on } : null,
     update: { available: update.available, installing: update.installing, checking: update.checking, result: update.result, page: update.page, done: update.done },
     intro: !!intro,
@@ -3304,9 +3304,38 @@ async function onMenu(id, via) {
     menu();
   }
   else if (id === 'askconnect') await typeToAsk({ value: 'Connect my ' });
+  else if (id === 'askskill') await typeToAsk({ value: 'Install skill ' });
   else if (id === 'learnskills') { config.learnSkills = config.learnSkills === false; saveConfig(); if (!config.learnSkills) dropLearn(); menu(); }
   else if (id === 'morningbrief') { config.morningBrief = !config.morningBrief; saveConfig(); menu(); }
   else if (id === 'brieftodoist' && HANDS_OK) { config.briefTodoist = !config.briefTodoist; saveConfig(); menu(); }
+  else if ((id === 'todoist:add' || id === 'todoist:edit') && HANDS_OK) {
+    const typed = await ask({
+      prompt: 'Enter your Todoist API token (Todoist Settings → Integrations → Developer → API token):',
+      placeholder: config.todoistToken ? '••••••••' : 'Todoist API token',
+      mask: true,
+    });
+    if (typed != null) {
+      const val = typed.trim();
+      if (val) {
+        config.todoistToken = val;
+        config.briefTodoist = true;
+        saveConfig();
+        panel();
+        menu();
+        panelNote('Todoist API token saved.');
+        say('Connected to Todoist! Your tasks will be included in the morning briefing.', 'happy');
+      }
+    }
+  }
+  else if (id === 'todoist:remove' && HANDS_OK) {
+    config.todoistToken = '';
+    config.briefTodoist = false;
+    saveConfig();
+    panel();
+    menu();
+    panelNote('Todoist disconnected.');
+    say('Removed Todoist integration.', 'happy');
+  }
   else if (id === 'focusstop') stopFocus(true);
   else if (id === 'distractions' && HANDS_OK) {
     const typed = await ask({ prompt: 'What distracts you? Sites or apps, separated by commas (empty for my usual list).', placeholder: distractionList().join(', ') });

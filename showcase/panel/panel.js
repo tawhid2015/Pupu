@@ -459,7 +459,16 @@
         link('View', () => act(`skill:view:${x.slug}`, true), { k: `skill:view:${x.slug}`, aria: `View the skill ${x.name}` }),
         armed('Remove', 'Confirm', `skill:forget:${x.slug}`, `skill:forget:${x.slug}`, `Remove the skill ${x.name}`))),
     { label: 'Skills', empty: `None yet. Say “remember how to do this” after I've done something.` });
-    return { body: [el('div', { className: 'group paged' }, box)], foot: foot(k.length ? el('p', { className: 'usage', textContent: `${k.length} skill${k.length === 1 ? '' : 's'}` }) : null, nav) };
+    return {
+      body: [el('div', { className: 'group paged' }, box)],
+      foot: foot(
+        el('span', { className: 'row-btns', style: { alignItems: 'center' } },
+          btn('Add a skill', () => act('askskill', true), { k: 'askskill' }),
+          k.length ? el('p', { className: 'usage', textContent: `${k.length} skill${k.length === 1 ? '' : 's'}` }) : null
+        ),
+        nav
+      )
+    };
   }
   function factList() {
     const f = state.facts, q = ui.q.trim().toLowerCase();
@@ -942,7 +951,17 @@
     return { body: [
       group(null, 'Things I do on my own through the day.', null,
         state.brief ? toggle('Morning briefing', 'The first time you talk to me each day, I start with what’s due.', state.brief.on, () => act('morningbrief'), 'morningbrief') : null,
-        state.brief?.on && state.brief.canTodoist ? toggle('Include Todoist', 'I read your Todoist window (opening it if needed). Stay signed in.', state.brief.todoist, () => act('brieftodoist'), 'brieftodoist') : null,
+        state.brief?.canTodoist ? toggle('Include Todoist', state.brief.hasToken ? `Include tasks from your connected Todoist account (${state.brief.tokenMask || 'API token saved'}).` : 'I read your Todoist window (opening it if needed). Stay signed in.', state.brief.todoist, () => act('brieftodoist'), 'brieftodoist') : null,
+        state.brief?.canTodoist ? el('div', { className: 'setting' },
+          el('span', {}, 'Todoist account',
+            el('small', { className: 'wrap', textContent: state.brief.hasToken ? `API Token: ${state.brief.tokenMask || '••••••••'} · Connected` : 'Connect your Todoist API token to sync tasks directly. Click Add to connect.' })),
+          el('span', { className: 'row-btns' },
+            state.brief.hasToken
+              ? link('Edit', () => act('todoist:edit', true), { k: 'todoist:edit', aria: 'Edit Todoist API token' })
+              : link('Add', () => act('todoist:add', true), { k: 'todoist:add', aria: 'Add Todoist API token' }),
+            state.brief.hasToken
+              ? armed('Remove', 'Confirm', 'todoist:remove', 'todoist:remove', 'Remove Todoist configuration and token')
+              : null)) : null,
         f ? el('div', { className: 'setting' },
           el('span', {}, f.until ? 'Focus block running' : 'Focus distractions',
             el('small', { className: 'wrap', textContent: f.until ? `Until ${new Date(f.until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${f.task ? ` · ${f.task}` : ''}` : `Say “focus for 30 minutes”. I watch for: ${f.list.slice(0, 4).join(', ')}${f.list.length > 4 ? '…' : ''}` })),
