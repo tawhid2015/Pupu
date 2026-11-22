@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { withoutImages } from '../store.mjs';
+import { needsToolsForTurn } from '../route.mjs';
 import {
   VISION_MAX_CHARS, VISION_SYSTEM, analyzeVision, imagePart, needsScreenLook, pickMainModel, pickVisionModel, splitLocalModels, unloadVision, visionHandoff, visionPrompt,
 } from '../vision.mjs';
@@ -168,5 +169,20 @@ assert.match(side, /never write a tool call in the reply/, 'the model is told no
 assert.match(side, /streamRules: TOOL_STREAM_RULES/, 'text-shaped tool calls are retried through the real tool channel');
 assert.match(side, /name: 'tool-as-text'[\s\S]*name: 'tool-as-json-text'/, 'both pseudo-call shapes are covered');
 assert.ok(!/visionResult\.text[^;]*say\(/.test(side), 'the vision model never speaks for the assistant');
+
+// Small / local models only get tools when an action is requested. Pure chitchat & greetings get empty tools.
+assert.equal(needsToolsForTurn('how are you'), false);
+assert.equal(needsToolsForTurn('হাওয়ার ইউ।'), false);
+assert.equal(needsToolsForTurn('কেমন আছো?'), false);
+assert.equal(needsToolsForTurn('Tomar Namki.'), false);
+assert.equal(needsToolsForTurn('tell me a story'), false);
+assert.equal(needsToolsForTurn('what is the capital of France'), false);
+assert.equal(needsToolsForTurn('open YouTube'), true);
+assert.equal(needsToolsForTurn('take a screenshot'), true);
+assert.equal(needsToolsForTurn('what is on my screen'), true);
+assert.equal(needsToolsForTurn('search for weather'), true);
+assert.equal(needsToolsForTurn('tell me today news in USA'), true);
+assert.equal(needsToolsForTurn('anything', { hasImage: true }), true);
+assert.equal(needsToolsForTurn('anything', { isScreenLook: true }), true);
 
 console.log('vision: ok');

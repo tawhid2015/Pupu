@@ -134,4 +134,7 @@ console.log('prompt (capabilities) tests: passed');
 assert.match(side, /\nSpeed: [^\n]*fewest, quickest steps[^\n]*same turn \(they run in parallel\)[^\n]*direct route[^\n]*click_text with that text right away[^\n]*stop when the request is done/);
 assert.ok(side.indexOf('\nSpeed: ') < side.indexOf('\nSeveral things in one request'), 'speed comes before the rules that lean on it');
 assert.ok(!/Be fast:|screenshot just that app/.test(side), 'no second copy of the speed rules');
+assert.match(side, /export (?:function|{[^}]*)\bneedsToolsForTurn\b/, 'needsToolsForTurn is exported');
+assert.match(side, /const smallOrLocal = config\.provider === 'local' \|\| isSmallModel\(config\.model\)/, 'small/local models filter tools for chitchat');
+assert.match(side, /agent\.options\.tools = wantTools \?/, 'pure conversational turns receive empty tools');
 console.log('prompt (speed) tests: passed');

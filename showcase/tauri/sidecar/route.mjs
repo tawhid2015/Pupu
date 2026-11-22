@@ -42,6 +42,30 @@ export const JOB_PATTERNS = {
 const CHITCHAT = /^\s*(thanks?( you)?|thx|ok(ay)?|cool|nice|great|got it|perfect|awesome|yes|yep|yeah|no|nope|sure|stop|never ?mind|good|hi|hello|hey)\b[\s.!?]*$/i;
 export const isChitchat = (text) => CHITCHAT.test(String(text ?? ''));
 
+// Words and patterns that indicate a turn genuinely needs tools (open app/URL, web search, screen inspection,
+// reminders, running commands, drawing). Small local models (<= 9B) over-trigger tools if offered on pure
+// conversational queries or greetings ("how are you", "who are you", "tell me a story"), hallucinating tool calls.
+export const ACTION_PATTERNS = [
+  /\b(?:open|launch|switch to|quit|close|start|play)\b/i,
+  /\b(?:search|google|look up|find out|browse)\b/i,
+  /\b(?:screenshot|screen|desktop|display|window|capture)\b/i,
+  /\b(?:remind|remember|snooze|alarm|todo|list commitments)\b/i,
+  /\b(?:click|type into|paste|fill in|press)\b/i,
+  /\b(?:run|execute|command|terminal|bash|zsh|script)\b/i,
+  /\b(?:draw|diagram|chart|sketch|plot)\b/i,
+  /\b(?:send agent|agent)\b/i,
+  /\b(?:weather|forecast|news|headline|headlines|price|prices|stock|stocks|score|scores)\b/i,
+  /(?:https?:\/\/|[a-z0-9-]+\.(?:com|org|net|io|edu|gov)\b)/i,
+  /(?:খোলো|চালাও|খুলুন|বন্ধ করো|সার্চ|খোঁজ|স্ক্রিনশট|পর্দা|মনে\s*রেখো|লিস্ট|আবহাওয়া|খবর|সংবাদ|দাম)/u,
+];
+
+export function needsToolsForTurn(text, { hasImage = false, isScreenLook = false } = {}) {
+  if (hasImage || isScreenLook) return true;
+  const s = String(text ?? '').trim();
+  if (!s) return false;
+  return ACTION_PATTERNS.some((re) => re.test(s));
+}
+
 /** The kinds of job a request looks like, in JOB_KINDS order. System lines ("(Reminder…)") and chit-chat are none. */
 export function jobKinds(text, { agentCheck = wantsAgent } = {}) {
   const t = String(text ?? '').trim();

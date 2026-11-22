@@ -51,7 +51,7 @@ import { createSpeaker, voiceProblemText, voiceWhy } from './speaker.mjs';
 import { LITE_BUDGET, LITE_TOOLS, LITE_TURNS, liteSystem } from './lite.mjs';
 import { handoffNote } from './quote.mjs';
 import { DELEGATE_MODES, SUBAGENTS, activeCrew, crewText, delegateNote, findSubagent } from './subagents.mjs';
-import { JOB_KINDS, findModelByName, findModelMention, hybridOn, isChitchat, jobKinds, kindOfTool, parseSpec, pickHeavy } from './route.mjs';
+import { JOB_KINDS, findModelByName, findModelMention, hybridOn, isChitchat, jobKinds, kindOfTool, needsToolsForTurn, parseSpec, pickHeavy } from './route.mjs';
 import { becauseOf, createLimits, firstFree, isQuota, limitFrom, untilWords } from './limits.mjs';
 import { SLOTS, isSetting, resolveEffort } from './effort.mjs';
 import { pickNotch } from './notch.mjs';
@@ -837,6 +837,8 @@ for (const t of tools) {
   };
 }
 holdAfterLaunch(tools, () => requestNo);
+
+export { needsToolsForTurn };
 
 // A screen question with no attached picture: take the screenshot ourselves and hand its VISION REPORT to the main
 // model. A text-only main cannot be trusted to call take_screenshot reliably, and must never answer from guesswork.
@@ -1704,6 +1706,14 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
     };
     const ctl = controller;
     watch = stallWatch(STALL_MS, () => { stalled = true; logLine('stalled', { turn, ms: Date.now() - use.t }); ctl.abort(); });
+    // Local / small models (<= 9B) should receive tools ONLY when an action or tool is actually requested.
+    // Pure conversational turns, greetings and chitchat ("how are you", "who are you", "tell me a story")
+    // are answered in direct natural speech without hallucinating tool calls.
+    if (agent?.options) {
+      const smallOrLocal = config.provider === 'local' || isSmallModel(config.model);
+      const wantTools = !smallOrLocal || needsToolsForTurn(turnWords || text, { hasImage: !!image, isScreenLook: !!screenReport });
+      agent.options.tools = wantTools ? (config.lite ? tools.filter((t) => LITE_TOOLS.has(t.name)) : tools) : [];
+    }
     for await (const e of agentEvents(agent.prompt(content))) {
       watch.event(e);
       if (e.type === 'text_delta') {
