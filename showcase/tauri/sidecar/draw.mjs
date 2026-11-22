@@ -40,6 +40,7 @@ const Mark = z.object({
   name: z.string().max(20).optional(), url: z.string().max(2000).optional(), query: z.string().min(1).max(100).optional(),
   title: z.string().min(1).max(60).optional(), heading: z.string().min(1).max(80).optional(),
   items: z.array(z.string().min(1).max(120)).max(12).optional(),
+  stories: z.array(z.object({ title: z.string().max(160), snippet: z.string().max(500).optional(), url: z.string().max(2000).optional(), source: z.string().max(60).optional() })).max(12).optional(),
   branches: z.array(z.object({ text: z.string().min(1).max(60), items: z.array(z.string().min(1).max(60)).max(6).optional(), tone: z.enum(TONES).optional() })).max(8).optional(),
   sources: z.array(z.object({ name: z.string().min(1).max(40), url: z.string().max(2000) })).max(8).optional(),
   x_range: pair.optional(), y_range: pair.optional(),

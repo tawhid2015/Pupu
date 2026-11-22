@@ -3,7 +3,7 @@
 // Everything shows links and pins the sources card. Run: npm test.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { extractSources, mergeSources, newsDirective, newsMode, sourceLine, wantsNewsMode } from '../newsmode.mjs';
+import { cleanPublisherName, extractSources, mergeSources, newsDirective, newsMode, parseNewsItems, sourceLine, wantsNewsMode } from '../newsmode.mjs';
 
 const root = new URL('../../../../', import.meta.url);
 const src = (p) => readFileSync(new URL(p, root), 'utf8');
@@ -63,5 +63,22 @@ assert.match(everything, /pinned: true/);
 assert.match(everything, /exact tool-returned URL/);
 assert.match(everything, /news\/world-123/);
 assert.doesNotMatch(everything, /no cards/);
+
+assert.equal(cleanPublisherName('Live Price of Gold - 24-hour live gold rates', 'https://www.livepriceofgold.com/gold-price.html'), 'LiveGold');
+assert.equal(cleanPublisherName('Gold News Today - Kitco', 'https://www.kitco.com/news/article.html'), 'Kitco');
+assert.equal(cleanPublisherName('Reuters', 'https://www.reuters.com/markets/commodities/gold.html'), 'Reuters');
+
+const sampleSearch = `Web search results:
+1. [Gold Rates Today](https://www.livepriceofgold.com/gold-price.html)
+Gold surged to fresh highs today as investors reacted to inflation data.
+2. [Fed Policy Shift](https://www.kitco.com/news/article.html)
+Federal Reserve signaled potential rate cuts, lifting bullion demand.`;
+
+const parsed = parseNewsItems(sampleSearch);
+assert.equal(parsed.length, 2);
+assert.equal(parsed[0].title, 'Gold Rates Today');
+assert.equal(parsed[0].source, 'LiveGold');
+assert.equal(parsed[0].url, 'https://www.livepriceofgold.com/gold-price.html');
+assert.match(parsed[0].snippet, /Gold surged/);
 
 console.log('news mode tests: passed');

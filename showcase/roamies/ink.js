@@ -715,12 +715,28 @@
     let cx = x; const hits = [];
     c.font = `500 10px ${MONO}`; c.fillStyle = DIM; c.fillText('SOURCES', cx, y); cx += textW('SOURCES', c.font) + 12;
     for (const s of list) {
-      const nw = textW(s.name, SMALL) + 26;
-      if (cx + nw > x + w) break;
-      if (s.img?.complete && s.img.naturalWidth) c.drawImage(s.img, cx, y - 10, 12, 12); else { c.fillStyle = MID; c.fillRect(cx + 3, y - 7, 6, 6); }
-      typed(c, s.name, cx + 16, y, SMALL, DIM, t / 0.4);
+      let displayName = String(s.name || '').trim();
+      let nw = textW(displayName, SMALL) + 24;
+      if (cx + nw > x + w) {
+        const avail = (x + w) - cx - 24;
+        if (avail >= 32) {
+          displayName = ellipsize(displayName, avail, SMALL);
+          nw = textW(displayName, SMALL) + 24;
+        } else {
+          break;
+        }
+      }
+      const isHot = this?.hoverId === s.url;
+      c.fillStyle = isHot ? 'rgba(255,100,120,0.22)' : 'rgba(120,255,226,0.12)';
+      c.fillRect(cx - 2, y - 12, nw, 17);
+      c.strokeStyle = isHot ? HOT : 'rgba(120,255,226,0.40)';
+      c.lineWidth = 1;
+      c.strokeRect(cx - 2, y - 12, nw, 17);
+
+      if (s.img?.complete && s.img.naturalWidth) c.drawImage(s.img, cx + 2, y - 10, 12, 12); else { c.fillStyle = isHot ? HOT : ACC; c.fillRect(cx + 4, y - 7, 6, 6); }
+      typed(c, displayName, cx + 16, y, SMALL, isHot ? HOT : ACC, t / 0.4);
       hits.push({ rect: [cx - 2, y - 13, nw, 18], kind: 'link', url: s.url });
-      cx += nw;
+      cx += nw + 6;
     }
     return hits;
   }
@@ -731,7 +747,7 @@
       // Everything shown: laid out 340 wide, then 440 and 560 while it's taller than the screen allows; past that it scrolls.
       const lay = (w) => {
         const heads = m.heading ? wrapRows(m.heading, w - 40, HEAD) : [], head = heads.length ? heads.length * 26 + 14 : 0;
-        const rows = m.text ? wrapRows(m.text, w - 40, BODY) : [], items = (m.items ?? []).map((it) => wrapRows(it, w - 64, BODY));
+        const rows = m.text ? wrapRows(m.text, w - 40, BODY) : [], items = (m.items ?? []).map((it) => wrapRows(typeof it === 'object' ? it.text : it, w - 64, BODY));
         const h = 26 + 18 + head + rows.length * 19 + (rows.length && items.length ? 10 : 0) + items.reduce((s2, r) => s2 + r.length * 19 + 6, 0) + (srcs.length ? 30 : 0) + 14;
         return { w, heads, head, rows, items, h };
       };
@@ -744,8 +760,37 @@
         let yy = y + 18;
         heads.forEach((r, i) => typed(b, r, x + 20, yy + 18 + i * 26, HEAD, TEXT, (age - i * 0.3) / 0.6)); yy += head;
         wrapped(b, rows, x + 20, yy + 6, 19, BODY, TEXT, (age - 0.2) / (0.4 + rows.join(' ').length * 0.012)); yy += rows.length * 19 + gap;
-        items.forEach((r, i) => { const a = age - 0.4 - i * 0.25; if (a <= 0) return; pen(b, l, this, ticks[i].map(([px, py]) => [px + x + 24, py + yy + 1]), clamp(a / 0.2, 0, 1), this.color, { key: 'k' + i, w: 2.6 }); wrapped(b, r, x + 40, yy + 6, 19, BODY, TEXT, a / 0.5); yy += r.length * 19 + 6; });
-        if (srcs.length) hits = sourcesRow(b, srcs, x + 20, y + h - 26 - 18, w - 40, age - 0.6);
+        items.forEach((r, i) => {
+          const a = age - 0.4 - i * 0.25;
+          if (a <= 0) return;
+          const itemH = r.length * 19 + 6;
+          const story = m.stories?.[i];
+          const isHot = story && (this.hoverId === `story:${i}` || this.hoverId === story.url);
+          if (story) {
+            if (isHot) {
+              b.fillStyle = 'rgba(120,255,226,0.15)';
+              b.fillRect(x + 16, yy - 3, w - 32, itemH);
+              b.strokeStyle = ACC;
+              b.lineWidth = 1;
+              b.strokeRect(x + 16, yy - 3, w - 32, itemH);
+            }
+          }
+          pen(b, l, this, ticks[i].map(([px, py]) => [px + x + 24, py + yy + 1]), clamp(a / 0.2, 0, 1), isHot ? HOT : this.color, { key: 'k' + i, w: 2.6 });
+          wrapped(b, r, x + 40, yy + 6, 19, BODY, isHot ? ACC : TEXT, a / 0.5);
+          if (story) {
+            if (a > 0.6) {
+              b.font = `500 11px ${MONO}`;
+              b.fillStyle = isHot ? HOT : 'rgba(120,255,226,0.7)';
+              b.fillText('↗', x + w - 32, yy + 16);
+            }
+            hits.push({ rect: [x + 16, yy - 3, w - 32, itemH], kind: 'story', index: i, id: `story:${i}`, story, part: m.part });
+          }
+          yy += itemH;
+        });
+        if (srcs.length) {
+          const sh = sourcesRow.call(this, b, srcs, x + 20, y + h - 26 - 18, w - 40, age - 0.6);
+          hits.push(...sh);
+        }
       }, { title: m.title || 'answer' });
       c.more = () => hits.map((q) => ({ ...q, part: m.part }));
     },
@@ -919,7 +964,7 @@
     },
     async sources(m) {
       const srcs = loadIcons(m.sources), w = 360, h = 26 + 40; let hits = [];
-      const c = await card(m, w, h, function (b, l, t, x, y, age) { hits = sourcesRow(b, srcs, x + 18, y + 25, w - 36, age); }, { title: m.title || 'sources' });
+      const c = await card(m, w, h, function (b, l, t, x, y, age) { hits = sourcesRow.call(this, b, srcs, x + 18, y + 25, w - 36, age); }, { title: m.title || 'sources' });
       c.more = () => hits.map((q) => ({ ...q, part: m.part }));
     },
     async photo(m) {
@@ -2289,10 +2334,19 @@
   const setHover = (h) => {
     const m = h?.m ?? null;
     if (hovered && hovered !== m) { hovered.hover = false; hovered.hoverClose = false; hovered.hoverFull = false; hovered.hoverSave = false; hovered.hoverPin = false; hovered.hoverGrip = false; hovered.hoverId = null; hovered.setHover?.(false); }
-    if (m) { m.hover = h.kind === 'button' || h.kind === 'link' || h.kind === 'clearall'; m.hoverClose = h.kind === 'close'; m.hoverFull = h.kind === 'full'; m.hoverSave = h.kind === 'save'; m.hoverPin = h.kind === 'pin'; m.hoverGrip = h.kind === 'resize'; m.hoverId = h.kind === 'tick' || h.kind === 'pick' ? h.id : null; m.setHover?.(h.kind === 'button'); }
+    if (m) {
+      m.hover = h.kind === 'button' || h.kind === 'link' || h.kind === 'clearall' || h.kind === 'story';
+      m.hoverClose = h.kind === 'close';
+      m.hoverFull = h.kind === 'full';
+      m.hoverSave = h.kind === 'save';
+      m.hoverPin = h.kind === 'pin';
+      m.hoverGrip = h.kind === 'resize';
+      m.hoverId = h.kind === 'tick' || h.kind === 'pick' || h.kind === 'story' ? (h.id ?? h.index) : h.kind === 'link' ? h.url : null;
+      m.setHover?.(h.kind === 'button');
+    }
     if (hovered !== m || m) touch(0.2);
     hovered = m;
-    document.documentElement.style.cursor = h && (h.kind === 'button' || h.kind === 'close' || h.kind === 'full' || h.kind === 'save' || h.kind === 'pin' || h.kind === 'link' || h.kind === 'clearall' || h.kind === 'tick' || h.kind === 'pick') ? 'pointer' : h?.kind === 'drag' ? 'grab' : h?.kind === 'resize' ? 'nwse-resize' : 'default';
+    document.documentElement.style.cursor = h && (h.kind === 'button' || h.kind === 'close' || h.kind === 'full' || h.kind === 'save' || h.kind === 'pin' || h.kind === 'link' || h.kind === 'clearall' || h.kind === 'tick' || h.kind === 'pick' || h.kind === 'story') ? 'pointer' : h?.kind === 'drag' ? 'grab' : h?.kind === 'resize' ? 'nwse-resize' : 'default';
   };
   const ours = (e) => !!hitAt(e.clientX, e.clientY) || !!drag || !!sizing;
   addEventListener('pointerdown', (e) => {
@@ -2304,6 +2358,7 @@
     else if (h.kind === 'tick') { sfx(h.done ? 'tick' : 'pip'); REM.until = Math.max(REM.until, now() + 4); R.ink.send?.({ type: 'list_toggle', id: h.id }); }
     else if (h.kind === 'button') { h.m.down = now(); h.m.press?.(); sfx('pip'); touch(0.3); R.ink.send?.({ type: 'ink_action', part: h.part }); }
     else if (h.kind === 'link') { sfx('pip'); R.ink.send?.({ type: 'open_link', url: h.url }); }
+    else if (h.kind === 'story') { sfx('pip'); touch(0.3); R.ink.send?.({ type: 'open_story', story: h.story, part: h.part }); }
     else if (h.kind === 'pick') { h.m.pick?.(h.id); touch(1); }
     else if (h.kind === 'clearall') clearEverything();
     else if (h.kind === 'full') toggleFull(h.m);

@@ -38,7 +38,7 @@ import { EMOTES, EchoFilter, ReplyStream } from './reply.mjs';
 import { downloadModel, isReady, modelDir, sizeLabel, totalBytes } from './voicemodel.mjs';
 import { MODEL as ASR_MODEL, prepareBanglaAsr, ready as banglaAsrReady, removeTake, size as banglaAsrSize, transcribeTake, wantsBanglaAsr } from './bangla-asr.mjs';
 import { cleanWhisperArtifacts, isPureEnglish, restoreCodeSwitch } from './banglish.mjs';
-import { extractSources, newsDirective, newsMode, sourceLine, wantsNewsMode } from './newsmode.mjs';
+import { cleanPublisherName, extractSources, newsDirective, newsMode, parseNewsItems, sourceLine, wantsNewsMode } from './newsmode.mjs';
 import { DICTATION_KEYS, DICTATION_LANGS, dictationConflict, dictationKeyCode, dictationLang, dictationSettings, dictationShortcut, dictationShortcutLabel, needDictationModel } from './dictation.mjs';
 import { noStyle, rewriteNote, rewriteSystem, styleFrom, writingCommand, writingLang } from './writing.mjs';
 import { checkTextAction } from './safety.mjs';
@@ -1107,6 +1107,60 @@ function showcaseDrawn() {
 // Its web card's site icons, fetched when the step opens (they're cached), so the first card isn't held up by them.
 function warmShowcase() { for (const b of showcaseBeats(userName)) for (const m of b.marks) for (const s of m.sources ?? []) if (checkDrawAction({ kind: 'favicon', url: s.url }).level === SAFE) faviconFor(s.url).catch(() => {}); }
 function stopShowcase() { if (!showcase) return; endShowcase('gone'); ink.clear(); }
+// A clicked story on a news card: open link in browser, pin full story card, and speak aloud
+async function handleOpenStory(story, part) {
+  if (!story) return;
+  const lang = config.replyLang === 'bn' ? 'bn' : 'en';
+
+  // 1. Open full story in default web browser
+  if (story.url) {
+    const v = checkLink(story.url);
+    if (v.level === SAFE) openUrl(String(story.url));
+    else console.error('story URL blocked:', v.reason);
+  }
+
+  // 2. Pin full news content card on screen
+  try {
+    const draw = tools.find((t) => t.name === 'draw');
+    if (draw) {
+      const storyTitle = String(story.source ? `${story.source} News` : 'News Story').slice(0, 60);
+      const storyHeading = String(story.title || 'News Update').slice(0, 80);
+      const storyText = String(story.snippet || story.title || '').slice(0, 320);
+      const storySources = story.url ? [{ name: String(story.source || 'Source').slice(0, 15), url: story.url }] : [];
+      const beatSay = lang === 'bn' ? 'সংবাদটি পিন করা হলো।' : 'Story pinned.';
+      await draw.execute({
+        beats: [{
+          say: beatSay,
+          marks: [{
+            kind: 'card',
+            title: storyTitle,
+            heading: storyHeading,
+            text: storyText,
+            sources: storySources,
+            pinned: true
+          }]
+        }]
+      }, { toolCallId: `story-${Date.now()}` }).catch(() => {});
+    }
+  } catch (err) {
+    console.error('Failed to pin story card:', err);
+  }
+
+  // 3. Start speaking that news aloud
+  const speakText = lang === 'bn'
+    ? `এখানে ${story.source || 'উৎস'} থেকে বিস্তারিত সংবাদ: ${story.title}। ${story.snippet || ''}`
+    : `Here is the story from ${story.source || 'the report'}: ${story.title}. ${story.snippet || ''}`;
+  say(speakText, 'happy');
+  if (speech.on || VOICE_ON()) {
+    speech.stop();
+    const v = speech.start();
+    if (v) {
+      v.say(speakText);
+      v.end();
+    }
+  }
+}
+
 // A next-step button on a drawing: ask sends its words as a new request; open and copy are checked again first.
 function onInkButton(part) {
   const a = ink.button(part);
@@ -1899,19 +1953,7 @@ async function runTodoistWorkReport(lang = 'en', { autoClose = true, isLaunch = 
         );
         if (typeof rawRes === 'string') {
           turnSources = extractSources(rawRes);
-          const lines = rawRes.split('\n');
-          let curTitle = '', curSnippet = '';
-          for (const line of lines) {
-            const m = /^\d+\.\s+\[(.*?)\]\((.*?)\)/.exec(line);
-            if (m) {
-              if (curTitle) extractedItems.push({ title: curTitle, snippet: curSnippet.trim() });
-              curTitle = m[1];
-              curSnippet = '';
-            } else if (curTitle && line.trim() && !line.startsWith('Web search results')) {
-              curSnippet += ' ' + line.trim();
-            }
-          }
-          if (curTitle) extractedItems.push({ title: curTitle, snippet: curSnippet.trim() });
+          extractedItems = parseNewsItems(rawRes);
           formattedSummary = formatSearchSummary(rawRes, lang);
         }
       } catch (err) {
@@ -1925,19 +1967,22 @@ async function runTodoistWorkReport(lang = 'en', { autoClose = true, isLaunch = 
         setAutoPinNews(true);
         const draw = tools.find((t) => t.name === 'draw');
         if (draw) {
-          const bulletItems = extractedItems.slice(0, 3).map((it) => {
-            const title = String(it.title || '').trim().slice(0, 38);
-            const snip = String(it.snippet || '').trim().replace(/\bhttps?:\/\/\S+/g, '').slice(0, 70);
-            return `${title}: ${snip}`.slice(0, 115);
-          });
-          if (!bulletItems.length && turnSources.length) {
-            for (const s of turnSources.slice(0, 3)) {
-              bulletItems.push(s.name.slice(0, 115));
-            }
-          }
+          const stories = extractedItems.slice(0, 3).map((it) => ({
+            title: String(it.title || '').trim(),
+            snippet: String(it.snippet || '').trim().replace(/\bhttps?:\/\/\S+/g, ''),
+            url: it.url || '',
+            source: it.source || cleanPublisherName(it.title, it.url)
+          }));
+          const bulletItems = stories.length
+            ? stories.map((s) => (s.snippet ? `${s.title.slice(0, 42)} - ${s.snippet.slice(0, 68)}`.slice(0, 115) : s.title.slice(0, 115)))
+            : turnSources.slice(0, 3).map((s) => s.name.slice(0, 115));
           if (!bulletItems.length) {
             bulletItems.push(formattedSummary ? formattedSummary.slice(0, 115) : 'Latest market rates and headlines');
           }
+          const cleanSources = turnSources.slice(0, 4).map((s) => ({
+            name: cleanPublisherName(s.name, s.url),
+            url: s.url
+          }));
           const cardHeading = (lang === 'bn' ? 'আজকের স্বর্ণ ও বাজার খবর' : 'Today Gold News & Rates').slice(0, 80);
           const cardTitle = String(actionableTask.content || 'News').slice(0, 60);
           const cardText = (lang === 'bn' ? 'স্বর্ণের বাজার দর ও খবরের আপডেট নিচে দেওয়া হলো:' : 'Latest gold market prices, Fed headlines and bullion rates:').slice(0, 120);
@@ -1951,7 +1996,8 @@ async function runTodoistWorkReport(lang = 'en', { autoClose = true, isLaunch = 
                 heading: cardHeading,
                 text: cardText,
                 items: bulletItems,
-                sources: turnSources.slice(0, 4),
+                stories,
+                sources: cleanSources,
                 pinned: true
               }]
             }]
@@ -4221,6 +4267,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   else if (m.type === 'listen_cancel') { autoTurn = null; send({ type: 'listen_cancel' }); } // Esc while the mic is on
   // A link clicked on the research card: web and mail links only.
   else if (m.type === 'open_link') { const v = checkLink(m.url); if (v.level === SAFE) openUrl(String(m.url)); else console.error('open_link blocked:', v.reason); }
+  else if (m.type === 'open_story') { handleOpenStory(m.story, m.part).catch((e) => console.error('open_story error:', e)); }
   else if (m.type === 'list_toggle') toggleItem(String(m.id)).catch((e) => console.error('list', e));
   else if (m.type === 'show_list') showList({ seconds: 20, toggle: true });
   // The overlay's drawing: a segment started, a wait for a click or hover ended, a card was closed, a button clicked.

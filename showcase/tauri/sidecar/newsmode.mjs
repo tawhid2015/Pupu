@@ -33,6 +33,89 @@ export function wantsNewsMode(text) {
   return null;
 }
 
+export function cleanPublisherName(rawName, url) {
+  let host = '';
+  try {
+    if (url) host = new URL(url).hostname.replace(/^www\./, '');
+  } catch {}
+
+  if (host) {
+    const parts = host.split('.');
+    let base = parts[0];
+    if (parts.length > 2 && (parts[parts.length - 2] === 'co' || parts[parts.length - 2] === 'com')) {
+      base = parts[0];
+    } else if (parts.length >= 2 && base === 'news') {
+      base = parts[1];
+    }
+    const map = {
+      kitco: 'Kitco',
+      livepriceofgold: 'LiveGold',
+      goldprice: 'GoldPrice',
+      reuters: 'Reuters',
+      bloomberg: 'Bloomberg',
+      investing: 'Investing',
+      marketwatch: 'MarketWatch',
+      cnbc: 'CNBC',
+      fxstreet: 'FXStreet',
+      forbes: 'Forbes',
+      ft: 'FinancialTimes',
+      wsj: 'WSJ',
+      yahoo: 'YahooFinance',
+      economictimes: 'EconomicTimes',
+      aljazeera: 'AlJazeera',
+      bbc: 'BBC',
+      cnn: 'CNN',
+      theguardian: 'Guardian'
+    };
+    if (map[base.toLowerCase()]) return map[base.toLowerCase()];
+    if (base) return base.charAt(0).toUpperCase() + base.slice(1, 12);
+    return host.slice(0, 14);
+  }
+
+  if (rawName && typeof rawName === 'string') {
+    const trimmed = rawName.trim();
+    if (trimmed.length <= 15 && !trimmed.includes('-') && !trimmed.includes('|') && !trimmed.includes(':')) {
+      return trimmed;
+    }
+  }
+
+  return (rawName || 'Source').slice(0, 14);
+}
+
+export function parseNewsItems(rawSearchText) {
+  const items = [];
+  if (!rawSearchText || typeof rawSearchText !== 'string') return items;
+  const lines = rawSearchText.split('\n');
+  let curTitle = '', curSnippet = '', curUrl = '';
+  for (const line of lines) {
+    const m = /^\d+\.\s+\[(.*?)\]\((.*?)\)/.exec(line);
+    if (m) {
+      if (curTitle) {
+        items.push({
+          title: curTitle.trim(),
+          snippet: curSnippet.trim().replace(/\bhttps?:\/\/\S+/g, ''),
+          url: curUrl,
+          source: cleanPublisherName(curTitle, curUrl)
+        });
+      }
+      curTitle = m[1];
+      curUrl = m[2];
+      curSnippet = '';
+    } else if (curTitle && line.trim() && !line.startsWith('Web search results')) {
+      curSnippet += ' ' + line.trim();
+    }
+  }
+  if (curTitle) {
+    items.push({
+      title: curTitle.trim(),
+      snippet: curSnippet.trim().replace(/\bhttps?:\/\/\S+/g, ''),
+      url: curUrl,
+      source: cleanPublisherName(curTitle, curUrl)
+    });
+  }
+  return items;
+}
+
 /** URLs actually returned by a web tool this turn, for the "never invent a source" rule. */
 export function extractSources(result, { max = 8 } = {}) {
   const text = typeof result === 'string' ? result : JSON.stringify(result ?? '');
