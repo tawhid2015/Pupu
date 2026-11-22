@@ -1718,6 +1718,64 @@ function formatSearchSummary(searchResultText, lang) {
   return 'Here are the top headlines today:\n\n' + top.map((x, i) => `${i + 1}. ${x.title}\n${x.snippet.slice(0, 140)}`).join('\n\n');
 }
 
+async function fetchTodoistTasks(token) {
+  if (!token) return [];
+  try {
+    const res = await fetch('https://api.todoist.com/api/v1/tasks', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data.results) ? data.results : (Array.isArray(data) ? data : []);
+  } catch {
+    return [];
+  }
+}
+
+async function addTodoistTask(token, content) {
+  if (!token || !content) return null;
+  const res = await fetch('https://api.todoist.com/api/v1/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ content })
+  });
+  if (!res.ok) throw new Error('Todoist API error: ' + res.status);
+  return await res.json();
+}
+
+function detectTodoistRequest(turnWords, token) {
+  if (!turnWords || typeof turnWords !== 'string') return null;
+  const t = turnWords.toLowerCase();
+  const mentionsTodoist = /(?:\b(todoist|todolist|to-do list|to do list)\b|টুডুইস্ট|টুডু)/iu.test(t);
+  const mentionsTask = /(?:\b(my tasks|pending tasks|today's tasks|todays tasks|all tasks)\b|আমার কাজ|টাস্ক)/iu.test(t);
+
+  if (!mentionsTodoist && !mentionsTask) return null;
+
+  // 1. Open Todoist
+  if (/(?:\b(open|launch|start|show app)\b|খুলো|ওপেন)/iu.test(t) && mentionsTodoist) {
+    return { action: 'open' };
+  }
+
+  // 2. Add task
+  if (/(?:\b(add|create|new|insert|put)\b|যোগ|নতুন|রাখো)/iu.test(t)) {
+    let content = t
+      .replace(/(?:\b(hey|hi|hello|jarvis|sarah|pupu|can|you|please|add|create|a|new|task|item|to|in|into|my|todoist|todolist)\b|টাস্ক|যোগ|করো|রাখো|টুডুইস্টে)/giu, '')
+      .replace(/[?,!:]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (content.length > 1) {
+      return { action: 'add', content };
+    }
+  }
+
+  // 3. List tasks
+  if (/(?:\b(show|read|tell|check|chk|what|whats|list|get|view|see)\b|বলো|দেখাও|কী|কি|লিস্ট)/iu.test(t) || mentionsTodoist) {
+    return { action: 'list' };
+  }
+
+  return null;
+}
+
 async function extractRawToolCall(text) {
   if (!text || typeof text !== 'string') return null;
   const m = /\[?(\w+)\{([^}]*)\}\]?(?:<tool_call\|?>|<\|tool_call\|>|<tool_call>)?/i.exec(text);
@@ -1995,6 +2053,53 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
             activity.end(toolCallId, true);
             panel();
           }
+        }
+      } else if (config.todoistToken && detectTodoistRequest(turnWords, config.todoistToken)) {
+        const todoistReq = detectTodoistRequest(turnWords, config.todoistToken);
+        if (todoistReq.action === 'list') {
+          const toolCallId = `todoist-${turn}`;
+          ui({ kind: 'agent', e: { type: 'tool', id: toolCallId, anim: anim('open', { target: 'Todoist' }) } });
+          activity.start(toolCallId, 'read_window', { target: 'Todoist' });
+          panel();
+          try {
+            const tasks = await fetchTodoistTasks(config.todoistToken);
+            ui({ kind: 'agent', e: { type: 'tool_end', id: toolCallId, isError: false } });
+            activity.end(toolCallId, false);
+            panel();
+            let msg = '';
+            if (!tasks || !tasks.length) {
+              msg = turnLang === 'bn' ? 'আপনার Todoist-এ বর্তমানে কোনো কাজ বাকি নেই।' : 'You have no pending tasks in Todoist right now.';
+            } else {
+              const listStr = tasks.map((t, i) => `${i + 1}. ${t.content}${t.due ? ` (Due: ${t.due.string || t.due.date})` : ''}`).join('\n');
+              msg = turnLang === 'bn'
+                ? `আপনার Todoist-এ ${tasks.length}টি কাজ রয়েছে:\n\n${listStr}`
+                : `Here are your tasks in Todoist:\n\n${listStr}`;
+            }
+            reply.push(msg);
+            lastReply = msg;
+          } catch (err) {
+            ui({ kind: 'agent', e: { type: 'tool_end', id: toolCallId, isError: true } });
+            activity.end(toolCallId, true);
+            panel();
+          }
+        } else if (todoistReq.action === 'add') {
+          try {
+            await addTodoistTask(config.todoistToken, todoistReq.content);
+            const msg = turnLang === 'bn'
+              ? `Todoist-এ "${todoistReq.content}" টাস্কটি যোগ করা হয়েছে!`
+              : `Added "${todoistReq.content}" to your Todoist!`;
+            reply.push(msg);
+            lastReply = msg;
+          } catch (err) {
+            const msg = turnLang === 'bn' ? 'টাস্কটি যোগ করতে সমস্যা হয়েছে।' : 'Could not add the task to Todoist.';
+            reply.push(msg);
+            lastReply = msg;
+          }
+        } else if (todoistReq.action === 'open') {
+          openUrl('https://app.todoist.com/app/today');
+          const msg = turnLang === 'bn' ? 'আমি আপনার Todoist ওপেন করছি...' : 'Opening Todoist for you...';
+          reply.push(msg);
+          lastReply = msg;
         }
       } else {
         const rawCall = await extractRawToolCall(rawTurnText);
