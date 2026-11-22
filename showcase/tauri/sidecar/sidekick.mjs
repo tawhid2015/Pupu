@@ -1763,6 +1763,7 @@ async function deleteTodoistTask(token, taskId) {
 
 let todoistTasksCache = [];
 let todoistLastFetch = 0;
+const todoistDoneToday = new Map();
 
 async function syncTodoistTasks(force = false) {
   if (!config.todoistToken) {
@@ -1779,13 +1780,15 @@ async function syncTodoistTasks(force = false) {
       if (t.due?.date) {
         dueMs = new Date(t.due.date + (t.due.date.length === 10 ? 'T23:59:59' : '')).getTime();
       }
+      const isDone = todoistDoneToday.has(t.id);
       return {
         id: `todoist:${t.id}`,
         todoistId: t.id,
         text: t.content,
         due: dueMs,
+        done: isDone,
         when: t.due ? (t.due.string ? (t.due.is_recurring ? `repeats ${t.due.string}` : t.due.string) : (dueMs ? fmtWhen(dueMs) : 'Todoist')) : 'Todoist',
-        overdue: !!(dueMs && dueMs < Date.now()),
+        overdue: !isDone && !!(dueMs && dueMs < Date.now()),
         repeat: t.due?.is_recurring ? (t.due.string || 'daily') : null,
         isTodoist: true
       };
@@ -1883,6 +1886,9 @@ async function runTodoistWorkReport(lang = 'en', { autoClose = true, isLaunch = 
   }
 
   let formattedSummary = '';
+  let extractedItems = [];
+  let turnSources = [];
+
   if (actionableTask && searchQuery) {
     const searchTool = tools.find((x) => x.name === 'web_search');
     if (searchTool) {
@@ -1892,6 +1898,20 @@ async function runTodoistWorkReport(lang = 'en', { autoClose = true, isLaunch = 
           { signal: new AbortController().signal }
         );
         if (typeof rawRes === 'string') {
+          turnSources = extractSources(rawRes);
+          const lines = rawRes.split('\n');
+          let curTitle = '', curSnippet = '';
+          for (const line of lines) {
+            const m = /^\d+\.\s+\[(.*?)\]\((.*?)\)/.exec(line);
+            if (m) {
+              if (curTitle) extractedItems.push({ title: curTitle, snippet: curSnippet.trim() });
+              curTitle = m[1];
+              curSnippet = '';
+            } else if (curTitle && line.trim() && !line.startsWith('Web search results')) {
+              curSnippet += ' ' + line.trim();
+            }
+          }
+          if (curTitle) extractedItems.push({ title: curTitle, snippet: curSnippet.trim() });
           formattedSummary = formatSearchSummary(rawRes, lang);
         }
       } catch (err) {
@@ -1899,7 +1919,44 @@ async function runTodoistWorkReport(lang = 'en', { autoClose = true, isLaunch = 
       }
     }
 
+    // Pin the news card on screen with source links
+    if (turnSources.length) {
+      try {
+        setAutoPinNews(true);
+        const draw = tools.find((t) => t.name === 'draw');
+        if (draw) {
+          await draw.execute({
+            beats: [{
+              say: lang === 'bn' ? 'সংবাদ উৎসগুলো পিন করা হলো।' : 'News pinned to screen.',
+              marks: [{
+                kind: 'sources',
+                title: actionableTask.content,
+                sources: turnSources.slice(0, 8),
+                pinned: true
+              }]
+            }]
+          }, { toolCallId: `news-pin-${Date.now()}` }).catch(() => {});
+        }
+      } catch (e) {
+        console.error('News pin failed:', e);
+      } finally {
+        setAutoPinNews(false);
+      }
+    }
+
     if (autoClose) {
+      // Mark as done for today in our UI
+      todoistDoneToday.set(actionableTask.id, {
+        id: `todoist:${actionableTask.id}`,
+        todoistId: actionableTask.id,
+        text: actionableTask.content,
+        done: true,
+        overdue: false,
+        when: 'Done today ↻',
+        repeat: actionableTask.due?.string || 'daily',
+        isTodoist: true
+      });
+      // Close in Todoist (for recurring tasks, Todoist advances next occurrence to tomorrow)
       await closeTodoistTask(config.todoistToken, actionableTask.id).catch(() => {});
       await syncTodoistTasks(true);
     }
@@ -1912,13 +1969,21 @@ async function runTodoistWorkReport(lang = 'en', { autoClose = true, isLaunch = 
     : '';
 
   if (actionableTask) {
+    let spokenNews = '';
+    if (extractedItems.length) {
+      spokenNews = extractedItems
+        .slice(0, 3)
+        .map((it, i) => `${i + 1}: ${it.title}. ${it.snippet.slice(0, 110).replace(/\bhttps?:\/\/\S+/g, '')}`)
+        .join('. Next story: ');
+    }
+
     const reportText = lang === 'bn'
-      ? `${isLaunch ? 'চালুর পর ' : ''}Todoist চেক করে **"${actionableTask.content}"** কাজটি সম্পন্ন করা হয়েছে:${formattedSummary ? '\n\n' + formattedSummary : ''}\n\nকাজটি সম্পন্ন (Completed) হিসেবে চিহ্নিত করা হয়েছে।${remainingStr}`
-      : `${isLaunch ? 'On launch, I checked ' : 'Checked '}your Todoist and completed: **${actionableTask.content}**:${formattedSummary ? '\n\n' + formattedSummary : ''}\n\n*Marked as completed for today in Todoist.*${remainingStr}`;
+      ? `${isLaunch ? 'চালুর পর ' : ''}Todoist চেক করে **"${actionableTask.content}"** কাজটি সম্পন্ন করা হয়েছে:${formattedSummary ? '\n\n' + formattedSummary : ''}\n\n✅ আজকের কাজটি সম্পন্ন (Done) করা হয়েছে এবং সংবাদ কার্ড পিন করা হয়েছে।${remainingStr}`
+      : `${isLaunch ? 'On launch, I checked ' : 'Checked '}your Todoist and completed: **${actionableTask.content}**:${formattedSummary ? '\n\n' + formattedSummary : ''}\n\n✅ *Marked as Done for today in Todoist (repeats tomorrow), and news card pinned to screen.*${remainingStr}`;
 
     const spokenText = lang === 'bn'
-      ? `হ্যালো! চালুর পর আমি আপনার Todoist চেক করেছি এবং "${actionableTask.content}" টাস্কটি সম্পন্ন করে দিয়েছি। আজকের বিস্তারিত তথ্য স্ক্রিনে দেওয়া হলো।`
-      : `Hello! On launch, I checked your Todoist and completed your task: ${actionableTask.content}. Today's latest updates are displayed on your screen.`;
+      ? `হ্যালো! চালুর পর আমি আপনার Todoist চেক করেছি এবং "${actionableTask.content}" টাস্কটি সম্পন্ন করে দিয়েছি। আজকের খবর: ${spokenNews || 'বিস্তারিত আপডেট স্ক্রিনে দেওয়া হয়েছে।'}`
+      : `Hello! On launch, I checked your Todoist and completed your task: ${actionableTask.content}. Here is today's news: ${spokenNews || "Gold market updates are on your screen."}`;
 
     return { reportText, spokenText, task: actionableTask, completed: true };
   }
@@ -1943,7 +2008,12 @@ async function autoTodoistCheckOnLaunch() {
     if (!result) return;
 
     say(result.reportText, 'happy');
-    showList({ seconds: 6 });
+    if (result.task) {
+      showList({ flash: `todoist:${result.task.id}`, seconds: 8 });
+      ui({ kind: 'agent', e: { type: 'emote', action: 'hype' } });
+    } else {
+      showList({ seconds: 6 });
+    }
 
     if (VOICE_ON()) {
       const v = speech.start();
@@ -2936,24 +3006,55 @@ const shortWhen = (ms, now = Date.now()) => {
 function showList({ seconds = 0, flash = null, toggle = false } = {}) {
   const now = Date.now(), L = listItems(now);
   const fmt = (i) => ({ id: i.id, text: i.text, done: i.done, overdue: i.overdue, when: i.due ? `${shortWhen(i.due, now)}${i.repeat ? ' ↻' : ''}` : '' });
-  const todoistItems = todoistTasksCache.map((t) => ({
-    id: t.id,
-    text: t.text,
-    done: false,
-    overdue: t.overdue,
-    when: t.when ? `${t.when}${t.repeat ? ' ↻' : ''}` : ''
-  }));
+  const todoistItems = todoistTasksCache.map((t) => {
+    const isDone = !!t.done || todoistDoneToday.has(t.todoistId);
+    return {
+      id: t.id,
+      text: t.text,
+      done: isDone,
+      overdue: !isDone && t.overdue,
+      when: isDone ? (t.repeat ? 'Done today ↻' : 'Done today') : (t.when ? `${t.when}${t.repeat ? ' ↻' : ''}` : '')
+    };
+  });
+  // Keep completed tasks on the list even if Todoist advanced their next due date
+  for (const [id, item] of todoistDoneToday.entries()) {
+    if (!todoistItems.some((x) => x.id === `todoist:${id}`)) {
+      todoistItems.push({
+        id: `todoist:${id}`,
+        text: item.text,
+        done: true,
+        overdue: false,
+        when: item.repeat ? 'Done today ↻' : 'Done today'
+      });
+    }
+  }
   ui({ kind: 'list', today: [...L.today.map(fmt), ...todoistItems], later: L.later.map(fmt), seconds, flash, toggle });
 }
 async function toggleItem(id) {
   if (id.startsWith('todoist:')) {
     const todoistTaskId = id.slice(8);
-    await closeTodoistTask(config.todoistToken, todoistTaskId).catch(() => {});
+    const wasDone = todoistDoneToday.has(todoistTaskId);
+    if (wasDone) {
+      todoistDoneToday.delete(todoistTaskId);
+    } else {
+      const item = todoistTasksCache.find((t) => t.todoistId === todoistTaskId);
+      todoistDoneToday.set(todoistTaskId, {
+        id: `todoist:${todoistTaskId}`,
+        todoistId: todoistTaskId,
+        text: item ? item.text : 'Todoist task',
+        done: true,
+        overdue: false,
+        when: 'Done today ↻',
+        repeat: item?.repeat || 'daily',
+        isTodoist: true
+      });
+      await closeTodoistTask(config.todoistToken, todoistTaskId).catch(() => {});
+    }
     await syncTodoistTasks(true).catch(() => {});
     panel();
     menu();
     showList({ flash: id, seconds: 4 });
-    say('Completed Todoist task!', 'happy');
+    say(wasDone ? 'Reopened Todoist task' : 'Completed Todoist task!', 'happy');
     return;
   }
   const c = listItems().today.concat(listItems().later).find((i) => i.id === id);
@@ -2963,6 +3064,7 @@ async function toggleItem(id) {
 }
 // Finished items stay struck through for the rest of the day; at midnight they're deleted.
 async function midnightClean() {
+  todoistDoneToday.clear();
   const n = await clearFinished().catch(() => 0);
   if (n) { menu(); showList(); }
   pruneLogs(); pruneUsage();
@@ -3114,7 +3216,18 @@ function panelState() {
     skills: listSkills().map((k) => ({ slug: k.slug, name: k.name, description: k.description })), learnSkills: config.learnSkills !== false,
     commitments: [
       ...openCommitments().map((c) => ({ id: c.id, text: c.text, due: c.due ?? null, when: c.due ? `${fmtWhen(c.due)}${c.repeat ? ` · repeats ${repeatLabel(c.repeat)}` : ''}` : '', overdue: !!(c.due && c.due < Date.now()), repeat: c.repeat ?? null })),
-      ...todoistTasksCache.map((t) => ({ id: t.id, text: t.text, due: t.due ?? null, when: t.when ? `${t.when} [Todoist]` : 'Todoist', overdue: t.overdue, repeat: t.repeat ?? null }))
+      ...todoistTasksCache.map((t) => {
+        const isDone = !!t.done || todoistDoneToday.has(t.todoistId);
+        return {
+          id: t.id,
+          text: t.text,
+          due: t.due ?? null,
+          done: isDone,
+          when: isDone ? (t.repeat ? 'Done today ↻' : 'Done today [Todoist]') : (t.when ? `${t.when} [Todoist]` : 'Todoist'),
+          overdue: !isDone && t.overdue,
+          repeat: t.repeat ?? null
+        };
+      })
     ],
     look: config.look ?? 'classic', looks: LOOKS.map(([id, label]) => [id, label]), name: lookName(),
     size: sizeNow(), sizes: SIZES,
@@ -3502,11 +3615,22 @@ async function onMenu(id, via) {
     if (targetId.startsWith('todoist:')) {
       const todoistTaskId = targetId.slice(8);
       if (done) {
+        const item = todoistTasksCache.find((t) => t.todoistId === todoistTaskId);
+        todoistDoneToday.set(todoistTaskId, {
+          id: `todoist:${todoistTaskId}`,
+          todoistId: todoistTaskId,
+          text: item ? item.text : 'Todoist task',
+          done: true,
+          overdue: false,
+          when: 'Done today ↻',
+          repeat: item?.repeat || 'daily',
+          isTodoist: true
+        });
         closeTodoistTask(config.todoistToken, todoistTaskId).then(async () => {
           await syncTodoistTasks(true);
           panel();
           menu();
-          showList({ seconds: 4 });
+          showList({ flash: targetId, seconds: 6 });
           ui({ kind: 'agent', e: { type: 'emote', action: 'hype' } });
           say('Done! Marked Todoist task as complete.', 'happy');
         }).catch((err) => {
