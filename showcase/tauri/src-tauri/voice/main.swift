@@ -1264,7 +1264,8 @@ final class Voice {
         if sttOn && pendingDictationTap {
             pendingDictationTap = false
             if phase == .handsFree && takeMode == .dictate { end("dictation tap"); finish() }
-            else if phase == .idle {
+            else if phase == .idle || phase == .wake {
+                if phase == .wake { stopWake() }
                 blocked = true
                 arm(now, mode: .dictate)
                 phase = .handsFree

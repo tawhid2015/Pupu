@@ -1459,9 +1459,8 @@ async function resolveSpotifyUri(query) {
 async function playSpotify({ action = 'liked', query = '' } = {}) {
   let uri = query ? await resolveSpotifyUri(query) : null;
   if (process.platform === 'darwin') {
-    let script = '';
     if (uri) {
-      script = `
+      const script = `
         tell application "Spotify"
           activate
           try
@@ -1474,40 +1473,22 @@ async function playSpotify({ action = 'liked', query = '' } = {}) {
           end try
         end tell
       `;
+      await run('osascript', ['-e', script]).catch(() => {});
     } else if (action === 'liked' || !query) {
-      script = `
-        tell application "Spotify"
-          activate
-          open location "spotify:collection:tracks"
-          delay 0.5
-          play
-          if player state is not playing then
-            tell application "System Events"
-              tell process "Spotify"
-                keystroke space
-              end tell
-            end tell
-          end if
-        end tell
-      `;
+      await run('osascript', ['-e', 'tell application "Spotify" to activate\ntell application "Spotify" to open location "spotify:collection:tracks"']).catch(() => {});
+      await new Promise((r) => setTimeout(r, 600));
+      try {
+        await hands('act', JSON.stringify({ app: 'Spotify', steps: [{ do: 'click_text', text: 'Play Liked Songs' }] }));
+      } catch {}
+      await run('osascript', ['-e', 'tell application "Spotify" to play']).catch(() => {});
     } else {
-      script = `
-        tell application "Spotify"
-          activate
-          open location "spotify:search:${encodeURIComponent(query)}"
-          delay 0.5
-          play
-          if player state is not playing then
-            tell application "System Events"
-              tell process "Spotify"
-                keystroke space
-              end tell
-            end tell
-          end if
-        end tell
-      `;
+      await run('osascript', ['-e', `tell application "Spotify" to activate\ntell application "Spotify" to open location "spotify:search:${encodeURIComponent(query)}"`]).catch(() => {});
+      await new Promise((r) => setTimeout(r, 800));
+      try {
+        await hands('act', JSON.stringify({ app: 'Spotify', steps: [{ do: 'click_text', text: 'Play' }] }));
+      } catch {}
+      await run('osascript', ['-e', 'tell application "Spotify" to play']).catch(() => {});
     }
-    await run('osascript', ['-e', script]).catch(() => {});
   } else {
     const fallbackUri = uri || (action === 'liked' || !query ? 'spotify:collection:tracks' : `spotify:search:${encodeURIComponent(query)}`);
     if (process.platform === 'win32') {
@@ -1658,7 +1639,10 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
   // With Bangla replies selected, never hand English model output to the Bangla voice: it would read English text
   // with a Bengali model and come out as gibberish. The language lock in the prompt should prevent it; this is the
   // backstop for short English progress lines that slip through.
-  const spoken = voice && new SpeechText((t) => { if (replyLang() !== 'bn' || hasBengali(t)) voice.say(t); }, speech.localOpts?.());
+  const spoken = voice && new SpeechText((t) => {
+    if (replyLang() === 'en' && hasBengali(t)) return;
+    if (replyLang() !== 'bn' || hasBengali(t)) voice.say(t);
+  }, speech.localOpts?.());
   let stalled = false, watch = null, learnAfter = false;
   try {
     // Voice: a short first line before a tool ("On it, checking Paris.") is a beat: it's spoken, but not
@@ -1668,6 +1652,8 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
     let beatText = voice ? '' : null, trimNext = false;
     const showText = (text) => {
       if (trimNext) { text = text.replace(/^\s+/, ''); if (!text) return; trimNext = false; }
+      if (turnLang === 'en' && hasBengali(text)) return;
+      if (turnLang === 'bn' && !hasBengali(text) && /^(I will|Searching|Looking|Checking|Playing|Let me)\b/i.test(text)) return;
       ui({ kind: 'agent', e: { type: 'text', text } });
     };
     const releaseBeat = (drop) => {
@@ -1727,6 +1713,8 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
       watch.event(e);
       if (e.type === 'text_delta') {
         rawTurnText += e.text;
+        if (turnLang === 'en' && hasBengali(e.text)) continue;
+        if (turnLang === 'bn' && !hasBengali(e.text) && /^(I will|Searching|Looking|Checking|Playing|Let me)\b/i.test(e.text)) continue;
         const t = echo.push(e.text);
         if (launched) continue;
         if (hold != null) { hold += t; continue; }
@@ -1815,21 +1803,37 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
       if (newsTopic) {
         const searchTool = tools.find((x) => x.name === 'web_search');
         if (searchTool) {
+          const toolCallId = `news-${turn}`;
+          ui({ kind: 'agent', e: { type: 'tool', id: toolCallId, anim: anim('web_search', { query: newsTopic }) } });
+          activity.start(toolCallId, 'web_search', { query: newsTopic });
+          panel();
           try {
             const res = await searchTool.execute({ query: newsTopic, time_range: 'day' }, { signal: ctl.signal });
             noteNewsSources(res);
+            ui({ kind: 'agent', e: { type: 'tool_end', id: toolCallId, isError: false } });
+            activity.end(toolCallId, false);
+            panel();
             if (typeof res === 'string') {
               const summary = formatSearchSummary(res, turnLang);
-              if (lastReply && lastReply.trim() && !lastReply.includes(summary)) {
-                reply.push('\n\n' + summary);
-                lastReply += '\n\n' + summary;
-              } else {
-                reply.push(summary);
-                lastReply = summary;
+              const introHeader = turnLang === 'bn'
+                ? 'আজকের প্রধান সংবাদগুলো নিচে দেওয়া হলো:'
+                : "Here are today's top stories:";
+
+              if (turnLang === 'en') {
+                if (hasBengali(lastReply)) lastReply = '';
+              } else if (turnLang === 'bn') {
+                if (!hasBengali(lastReply) && lastReply.trim()) lastReply = '';
               }
+
+              const fullText = (lastReply.trim() ? lastReply.trim() + '\n\n' : (introHeader + '\n\n')) + summary;
+              reply.push(fullText);
+              lastReply = fullText;
             }
           } catch (err) {
             console.error('News search error:', err);
+            ui({ kind: 'agent', e: { type: 'tool_end', id: toolCallId, isError: true } });
+            activity.end(toolCallId, true);
+            panel();
           }
         }
       } else {
@@ -1842,18 +1846,39 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
             const tool = tools.find((x) => x.name === rawCall.toolName);
             if (tool) {
               logLine('raw_tool_call', { name: rawCall.toolName, args: rawCall.args });
+              const toolCallId = `raw-${turn}`;
+              ui({ kind: 'agent', e: { type: 'tool', id: toolCallId, anim: anim(rawCall.toolName, rawCall.args ?? {}) } });
+              activity.start(toolCallId, rawCall.toolName, rawCall.args ?? {});
+              panel();
               try {
                 const res = await tool.execute(rawCall.args, { signal: ctl.signal });
+                ui({ kind: 'agent', e: { type: 'tool_end', id: toolCallId, isError: false } });
+                activity.end(toolCallId, false);
+                panel();
                 if (rawCall.toolName === 'web_search') {
                   noteNewsSources(res);
                   if (typeof res === 'string') {
                     const summary = formatSearchSummary(res, turnLang);
-                    reply.push(summary);
-                    lastReply = summary;
+                    const introHeader = turnLang === 'bn'
+                      ? 'আজকের প্রধান সংবাদগুলো নিচে দেওয়া হলো:'
+                      : "Here are today's top stories:";
+
+                    if (turnLang === 'en') {
+                      if (hasBengali(lastReply)) lastReply = '';
+                    } else if (turnLang === 'bn') {
+                      if (!hasBengali(lastReply) && lastReply.trim()) lastReply = '';
+                    }
+
+                    const fullText = (lastReply.trim() ? lastReply.trim() + '\n\n' : (introHeader + '\n\n')) + summary;
+                    reply.push(fullText);
+                    lastReply = fullText;
                   }
                 }
               } catch (err) {
                 console.error('raw tool execution error:', err);
+                ui({ kind: 'agent', e: { type: 'tool_end', id: toolCallId, isError: true } });
+                activity.end(toolCallId, true);
+                panel();
               }
             }
           }
