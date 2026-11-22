@@ -1810,7 +1810,12 @@ function detectTodoistRequest(turnWords, token) {
     return { action: 'open' };
   }
 
-  // 2. Add task
+  // 2. Do work / execute tasks
+  if (/(?:\b(do|execute|run|perform|complete)\b|কাজগুলো করো|কাজ করো|করে দাও|করে ফেলো)/iu.test(t) && (mentionsTodoist || /(?:task|work|job)/i.test(t))) {
+    return { action: 'do_work' };
+  }
+
+  // 3. Add task
   if (/(?:\b(add|create|new|insert|put)\b|যোগ|নতুন|রাখো)/iu.test(t)) {
     let content = t
       .replace(/(?:\b(hey|hi|hello|jarvis|sarah|pupu|can|you|please|add|create|a|new|task|item|to|in|into|my|todoist|todolist)\b|টাস্ক|যোগ|করো|রাখো|টুডুইস্টে)/giu, '')
@@ -1822,12 +1827,134 @@ function detectTodoistRequest(turnWords, token) {
     }
   }
 
-  // 3. List tasks
+  // 4. List tasks
   if (/(?:\b(show|read|tell|check|chk|what|whats|list|get|view|see)\b|বলো|দেখাও|কী|কি|লিস্ট)/iu.test(t) || mentionsTodoist) {
     return { action: 'list' };
   }
 
   return null;
+}
+
+async function runTodoistWorkReport(lang = 'en', { autoClose = true, isLaunch = false } = {}) {
+  if (!config.todoistToken) return null;
+  const tasks = await fetchTodoistTasks(config.todoistToken);
+  if (!tasks || !tasks.length) {
+    if (isLaunch) return null;
+    return {
+      reportText: lang === 'bn' ? 'আপনার Todoist-এ কোনো কাজ বাকি নেই।' : 'You have no pending tasks in Todoist right now.',
+      spokenText: lang === 'bn' ? 'আপনার Todoist-এ কোনো কাজ বাকি নেই।' : 'You have no pending tasks in Todoist right now.'
+    };
+  }
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const activeTasks = tasks.filter((t) => !t.due?.date || t.due.date <= todayStr);
+  if (!activeTasks.length) {
+    if (isLaunch) return null;
+    return {
+      reportText: lang === 'bn' ? 'আজকের জন্য কোনো পেন্ডিং টাস্ক নেই। পরবর্তী কাজগুলো ভবিষ্যতের জন্য নির্ধারিত।' : 'All tasks for today are already completed! Next tasks are scheduled for upcoming days.',
+      spokenText: lang === 'bn' ? 'আজকের সব কাজ সম্পন্ন হয়েছে।' : 'All tasks for today are already completed.'
+    };
+  }
+
+  // Find an actionable task (e.g. "Chk Gold News", "Check news", "Weather", etc.)
+  let actionableTask = null;
+  let searchQuery = null;
+
+  for (const t of activeTasks) {
+    const c = t.content.trim();
+    if (/(?:gold|shona|স্বর্ণ|সোনা)/i.test(c)) {
+      actionableTask = t;
+      searchQuery = 'today gold price and market news headlines';
+      break;
+    } else if (/(?:weather|আবহাওয়া|forecast)/i.test(c)) {
+      actionableTask = t;
+      searchQuery = 'today weather forecast';
+      break;
+    } else if (/(?:news|খবর|headline)/i.test(c)) {
+      actionableTask = t;
+      searchQuery = c.replace(/^(?:chk|check|find|get)\s+/i, '') + ' today';
+      break;
+    } else if (/^(?:chk|check|search|find|lookup|look up)\s+(.+)/i.test(c)) {
+      actionableTask = t;
+      const target = c.replace(/^(?:chk|check|search|find|lookup|look up)\s+/i, '');
+      searchQuery = `today ${target}`;
+      break;
+    }
+  }
+
+  let formattedSummary = '';
+  if (actionableTask && searchQuery) {
+    const searchTool = tools.find((x) => x.name === 'web_search');
+    if (searchTool) {
+      try {
+        const rawRes = await searchTool.execute(
+          { query: searchQuery, time_range: 'day' },
+          { signal: new AbortController().signal }
+        );
+        if (typeof rawRes === 'string') {
+          formattedSummary = formatSearchSummary(rawRes, lang);
+        }
+      } catch (err) {
+        console.error('Todoist task search failed:', err);
+      }
+    }
+
+    if (autoClose) {
+      await closeTodoistTask(config.todoistToken, actionableTask.id).catch(() => {});
+      await syncTodoistTasks(true);
+    }
+  }
+
+  const remaining = activeTasks.filter((t) => t.id !== actionableTask?.id);
+  const remainingStr = remaining.length
+    ? (lang === 'bn' ? '\n\nঅন্যান্য কাজ:\n' : '\n\nOther pending tasks:\n') +
+      remaining.map((t, i) => `${i + 1}. ${t.content}${t.due?.string ? ` (${t.due.string})` : ''}`).join('\n')
+    : '';
+
+  if (actionableTask) {
+    const reportText = lang === 'bn'
+      ? `${isLaunch ? 'চালুর পর ' : ''}Todoist চেক করে **"${actionableTask.content}"** কাজটি সম্পন্ন করা হয়েছে:${formattedSummary ? '\n\n' + formattedSummary : ''}\n\nকাজটি সম্পন্ন (Completed) হিসেবে চিহ্নিত করা হয়েছে।${remainingStr}`
+      : `${isLaunch ? 'On launch, I checked ' : 'Checked '}your Todoist and completed: **${actionableTask.content}**:${formattedSummary ? '\n\n' + formattedSummary : ''}\n\n*Marked as completed for today in Todoist.*${remainingStr}`;
+
+    const spokenText = lang === 'bn'
+      ? `হ্যালো! চালুর পর আমি আপনার Todoist চেক করেছি এবং "${actionableTask.content}" টাস্কটি সম্পন্ন করে দিয়েছি। আজকের বিস্তারিত তথ্য স্ক্রিনে দেওয়া হলো।`
+      : `Hello! On launch, I checked your Todoist and completed your task: ${actionableTask.content}. Today's latest updates are displayed on your screen.`;
+
+    return { reportText, spokenText, task: actionableTask, completed: true };
+  }
+
+  // Non-actionable tasks listing
+  const listStr = activeTasks.map((t, i) => `${i + 1}. ${t.content}${t.due?.string ? ` (${t.due.string})` : ''}`).join('\n');
+  const reportText = lang === 'bn'
+    ? `${isLaunch ? 'চালুর পর ' : ''}আপনার আজকের Todoist কাজগুলো:\n\n${listStr}`
+    : `${isLaunch ? 'On launch, here ' : 'Here '}are your Todoist tasks for today:\n\n${listStr}`;
+  const spokenText = lang === 'bn'
+    ? `আপনার আজকের Todoist-এ ${activeTasks.length}টি কাজ রয়েছে।`
+    : `You have ${activeTasks.length} task${activeTasks.length === 1 ? '' : 's'} on your Todoist for today.`;
+
+  return { reportText, spokenText, completed: false };
+}
+
+async function autoTodoistCheckOnLaunch() {
+  if (!config.todoistToken || config.briefTodoist === false) return;
+  try {
+    const lang = config.replyLang === 'bn' ? 'bn' : 'en';
+    const result = await runTodoistWorkReport(lang, { autoClose: true, isLaunch: true });
+    if (!result) return;
+
+    say(result.reportText, 'happy');
+    showList({ seconds: 6 });
+
+    if (VOICE_ON()) {
+      const v = speech.start();
+      if (v) {
+        v.say(result.spokenText || result.reportText);
+        v.end();
+      }
+    }
+  } catch (err) {
+    console.error('Launch Todoist check error:', err);
+  }
 }
 
 async function extractRawToolCall(text) {
@@ -2110,7 +2237,26 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
         }
       } else if (config.todoistToken && detectTodoistRequest(turnWords, config.todoistToken)) {
         const todoistReq = detectTodoistRequest(turnWords, config.todoistToken);
-        if (todoistReq.action === 'list') {
+        if (todoistReq.action === 'do_work') {
+          const toolCallId = `todoist-${turn}`;
+          ui({ kind: 'agent', e: { type: 'tool', id: toolCallId, anim: anim('open', { target: 'Todoist' }) } });
+          activity.start(toolCallId, 'read_window', { target: 'Todoist' });
+          panel();
+          try {
+            const res = await runTodoistWorkReport(turnLang, { autoClose: true });
+            ui({ kind: 'agent', e: { type: 'tool_end', id: toolCallId, isError: false } });
+            activity.end(toolCallId, false);
+            panel();
+            const msg = res?.reportText || (turnLang === 'bn' ? 'কোনো পেন্ডিং টাস্ক পাওয়া যায়নি।' : 'No actionable tasks found in Todoist right now.');
+            reply.push(msg);
+            lastReply = msg;
+            showList({ seconds: 6 });
+          } catch (err) {
+            ui({ kind: 'agent', e: { type: 'tool_end', id: toolCallId, isError: true } });
+            activity.end(toolCallId, true);
+            panel();
+          }
+        } else if (todoistReq.action === 'list') {
           const toolCallId = `todoist-${turn}`;
           ui({ kind: 'agent', e: { type: 'tool', id: toolCallId, anim: anim('open', { target: 'Todoist' }) } });
           activity.start(toolCallId, 'read_window', { target: 'Todoist' });
@@ -2131,6 +2277,7 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
             }
             reply.push(msg);
             lastReply = msg;
+            showList({ seconds: 6 });
           } catch (err) {
             ui({ kind: 'agent', e: { type: 'tool_end', id: toolCallId, isError: true } });
             activity.end(toolCallId, true);
@@ -4114,6 +4261,12 @@ setInterval(() => checkUpdates(), 6 * 3600_000);
 voiceConfig();
 // Warm Bangla listening ahead of the first hold, after startup has settled. Never on Windows/Linux.
 if (ASR_OK && (config.voice || needDictationModel(config))) setTimeout(() => getBanglaAsr(), 8000).unref?.();
+// Auto-check Todoist and execute tasks on launch
+if (config.todoistToken) {
+  setTimeout(() => {
+    autoTodoistCheckOnLaunch().catch((err) => console.error('Launch Todoist check error:', err));
+  }, 4500).unref?.();
+}
 // First run (or setup never finished): open the guide.
 // v2 added the "Control apps" (Accessibility) permission: people who finished setup before that
 // get the guide once more, on the permissions step.
