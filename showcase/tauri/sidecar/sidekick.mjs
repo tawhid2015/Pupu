@@ -1412,6 +1412,32 @@ const desk = newsDesk({
   signedIn: () => signedIn.size > 0 && [...signedIn.values()].some(Boolean),
 });
 const stir = desk.stir;
+function extractRawToolCall(text, turnWords) {
+  if (!text || typeof text !== 'string') return null;
+  const m = /\[?(\w+)\{([^}]*)\}\]?(?:<tool_call\|?>|<\|tool_call\|>|<tool_call>)?/i.exec(text);
+  if (!m || !m[1]) return null;
+  const toolName = m[1];
+  const argsRaw = m[2] || '';
+  const args = {};
+  const argRegex = /(\w+)\s*:\s*(?:<\|\"\|>|\"|')(.*?)(?:<\|\"\|>|\"|'|$)/g;
+  let match;
+  while ((match = argRegex.exec(argsRaw)) !== null) {
+    args[match[1]] = match[2];
+  }
+  if (toolName === 'open') {
+    let t = String(args.target || '').trim();
+    if (!t || /^youtube$/i.test(t)) {
+      const playMatch = /play\s+(.*?)\s+(?:on\s+)?youtube/i.exec(turnWords || '');
+      if (playMatch && playMatch[1].trim()) {
+        args.target = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(playMatch[1].trim());
+      } else {
+        args.target = 'https://www.youtube.com';
+      }
+    }
+  }
+  return { toolName, args, raw: m[0] };
+}
+
 // news: the agent ids this system turn passes on.
 const snoozeListenOn = () => VOICE_OK && !!config.voice && !!config.snoozeListen && voiceReady() && !intro;
 async function prompt(text, image = null, note = '', byVoice = false, news = null, listenAfter = false, lang = null) {
@@ -1520,6 +1546,7 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
     lastReply = ''; lastFailed = false; lastInput = null;
     let fresh = false; // the reply that matters is the last turn's text (after any tool calls)
     let writing = null; // the beat timer while a tool call is being written
+    let rawTurnText = '';
     const doneWriting = () => { clearTimeout(writing); writing = null; };
     // Nothing back from the model for a long while (a hung connection, Claude Code retrying out of sight): give up
     // and say so, instead of waiting silently forever with every later request queued behind it.
@@ -1536,6 +1563,7 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
     for await (const e of agentEvents(agent.prompt(content))) {
       watch.event(e);
       if (e.type === 'text_delta') {
+        rawTurnText += e.text;
         const t = echo.push(e.text);
         if (launched) continue;
         if (hold != null) { hold += t; continue; }
@@ -1596,6 +1624,21 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
     doneWriting();
     if (hold != null) { hold += echo.flush(); release(); }
     { const t = echo.flush(); if (!launched) { reply.push(t); lastReply += t; } }
+    const rawCall = extractRawToolCall(rawTurnText, turnWords);
+    if (rawCall) {
+      const tool = tools.find((x) => x.name === rawCall.toolName);
+      if (tool) {
+        logLine('raw_tool_call', { name: rawCall.toolName, args: rawCall.args });
+        try {
+          await tool.execute(rawCall.args);
+        } catch (err) {
+          console.error('raw tool execution error:', err);
+        }
+        const confirmMsg = turnLang === 'bn' ? 'আমি ইউটিউব খুলছি...' : 'Opening YouTube for you...';
+        reply.push(confirmMsg);
+        lastReply = confirmMsg;
+      }
+    }
     // Sources are taken from what the web tools actually returned, not from what the model claims it saw. Medium gets
     // publisher names only; Everything gets links and its card is pinned below. Short gets no source line at all.
     const hasSourceLine = /(?:^|\n)\s*(?:\**sources?\**|উৎস)\s*:/im.test(lastReply);
