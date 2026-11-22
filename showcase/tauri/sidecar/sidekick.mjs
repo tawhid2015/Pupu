@@ -1440,43 +1440,80 @@ async function resolveYouTubeVideo(query, turnWords = '') {
   return fetchUrl;
 }
 
+async function resolveSpotifyUri(query) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch('https://html.duckduckgo.com/html/?q=' + encodeURIComponent('spotify ' + query), {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' },
+    });
+    clearTimeout(timer);
+    const html = await res.text();
+    const m = [...html.matchAll(/open\.spotify\.com\/(track|artist|album|playlist)\/([a-zA-Z0-9]+)/g)];
+    if (m.length) return `spotify:${m[0][1]}:${m[0][2]}`;
+  } catch {}
+  return null;
+}
+
 async function playSpotify({ action = 'liked', query = '' } = {}) {
+  let uri = query ? await resolveSpotifyUri(query) : null;
   if (process.platform === 'darwin') {
-    if (action === 'liked' || !query) {
-      const script = `
+    let script = '';
+    if (uri) {
+      script = `
         tell application "Spotify"
           activate
           try
-            play track "spotify:collection:tracks"
+            play track "${uri}"
             play
           on error
+            open location "${uri}"
+            delay 0.5
             play
           end try
         end tell
       `;
-      await run('osascript', ['-e', script]).catch(() => {});
+    } else if (action === 'liked' || !query) {
+      script = `
+        tell application "Spotify"
+          activate
+          open location "spotify:collection:tracks"
+          delay 0.5
+          play
+          if player state is not playing then
+            tell application "System Events"
+              tell process "Spotify"
+                keystroke space
+              end tell
+            end tell
+          end if
+        end tell
+      `;
     } else {
-      const safeQ = query.replace(/"/g, '\\"');
-      const script = `
+      script = `
         tell application "Spotify"
           activate
-          try
-            play track "spotify:search:${safeQ}"
-            play
-          on error
-            open location "spotify:search:${encodeURIComponent(query)}"
-            play
-          end try
+          open location "spotify:search:${encodeURIComponent(query)}"
+          delay 0.5
+          play
+          if player state is not playing then
+            tell application "System Events"
+              tell process "Spotify"
+                keystroke space
+              end tell
+            end tell
+          end if
         end tell
       `;
-      await run('osascript', ['-e', script]).catch(() => {});
     }
+    await run('osascript', ['-e', script]).catch(() => {});
   } else {
-    const uri = action === 'liked' || !query ? 'spotify:collection:tracks' : `spotify:search:${encodeURIComponent(query)}`;
+    const fallbackUri = uri || (action === 'liked' || !query ? 'spotify:collection:tracks' : `spotify:search:${encodeURIComponent(query)}`);
     if (process.platform === 'win32') {
-      await winOpen(uri).catch(() => {});
+      await winOpen(fallbackUri).catch(() => {});
     } else {
-      await launch('xdg-open', [uri]).catch(() => {});
+      await launch('xdg-open', [fallbackUri]).catch(() => {});
     }
   }
 }
@@ -1497,7 +1534,7 @@ function detectMediaAction(turnWords) {
     return { platform: 'youtube', query: q, pickIdx };
   }
 
-  const hasMusic = /(?:\b(song|songs|audio|music|spotify)\b|গান|মিউজিক|স্পটিফাই)/iu.test(t);
+  const hasMusic = /(?:\b(song|songs|audio|music|spotify|spotfy)\b|গান|মিউজিক|স্পটিফাই)/iu.test(t);
   if (hasMusic) {
     const isLiked = /(?:\b(like|liked|favorite|favourite|my song|my songs|my music)\b|পছন্দের|আমার গান)/iu.test(t);
     const clean = t.replace(/(?:\b(play|listen to|song|songs|audio|music|on spotify|spotify|chalao|shunbo|gaan|gan|te|e|my|like|liked|spotfy)\b|গান|চালাও|শুনব|বাজাও|স্পটিফাই)/giu, '').trim();
@@ -1509,6 +1546,21 @@ function detectMediaAction(turnWords) {
   }
 
   return null;
+}
+
+function detectNewsRequest(turnWords) {
+  if (!turnWords || typeof turnWords !== 'string') return null;
+  const t = turnWords.toLowerCase();
+  const hasNewsWord = /(?:\b(news|headlines|headline)\b|খবর|সংবাদ)/iu.test(t);
+  if (!hasNewsWord) return null;
+
+  let query = t
+    .replace(/(?:\b(hey|hi|hello|jarvis|sarah|pupu|tell|me|about|can|you|please|give|show|what|is|the|whats|are)\b|বলো|জানাও|কী|কি)/giu, '')
+    .replace(/[?,!.]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!query || query.length < 3) query = 'today latest news headlines';
+  return query;
 }
 
 function formatSearchSummary(searchResultText, lang) {
@@ -1759,27 +1811,50 @@ async function prompt(text, image = null, note = '', byVoice = false, news = nul
         lastReply = confirmMsg;
       }
     } else {
-      const rawCall = await extractRawToolCall(rawTurnText);
-      if (rawCall) {
-        // If the model hallucinated "open" to YouTube for a non-media question, ignore it
-        if (rawCall.toolName === 'open' && /youtube/i.test(String(rawCall.args?.target || ''))) {
-          // ignore hallucinated YouTube open call
-        } else {
-          const tool = tools.find((x) => x.name === rawCall.toolName);
-          if (tool) {
-            logLine('raw_tool_call', { name: rawCall.toolName, args: rawCall.args });
-            try {
-              const res = await tool.execute(rawCall.args, { signal: ctl.signal });
-              if (rawCall.toolName === 'web_search') {
-                noteNewsSources(res);
-                if (typeof res === 'string') {
-                  const summary = formatSearchSummary(res, turnLang);
-                  reply.push(summary);
-                  lastReply = summary;
-                }
+      const newsTopic = detectNewsRequest(turnWords);
+      if (newsTopic) {
+        const searchTool = tools.find((x) => x.name === 'web_search');
+        if (searchTool) {
+          try {
+            const res = await searchTool.execute({ query: newsTopic, time_range: 'day' }, { signal: ctl.signal });
+            noteNewsSources(res);
+            if (typeof res === 'string') {
+              const summary = formatSearchSummary(res, turnLang);
+              if (lastReply && lastReply.trim() && !lastReply.includes(summary)) {
+                reply.push('\n\n' + summary);
+                lastReply += '\n\n' + summary;
+              } else {
+                reply.push(summary);
+                lastReply = summary;
               }
-            } catch (err) {
-              console.error('raw tool execution error:', err);
+            }
+          } catch (err) {
+            console.error('News search error:', err);
+          }
+        }
+      } else {
+        const rawCall = await extractRawToolCall(rawTurnText);
+        if (rawCall) {
+          // If the model hallucinated "open" to YouTube for a non-media question, ignore it
+          if (rawCall.toolName === 'open' && /youtube/i.test(String(rawCall.args?.target || ''))) {
+            // ignore hallucinated YouTube open call
+          } else {
+            const tool = tools.find((x) => x.name === rawCall.toolName);
+            if (tool) {
+              logLine('raw_tool_call', { name: rawCall.toolName, args: rawCall.args });
+              try {
+                const res = await tool.execute(rawCall.args, { signal: ctl.signal });
+                if (rawCall.toolName === 'web_search') {
+                  noteNewsSources(res);
+                  if (typeof res === 'string') {
+                    const summary = formatSearchSummary(res, turnLang);
+                    reply.push(summary);
+                    lastReply = summary;
+                  }
+                }
+              } catch (err) {
+                console.error('raw tool execution error:', err);
+              }
             }
           }
         }
