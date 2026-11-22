@@ -1919,19 +1919,39 @@ async function runTodoistWorkReport(lang = 'en', { autoClose = true, isLaunch = 
       }
     }
 
-    // Pin the news card on screen with source links
-    if (turnSources.length) {
+    // Pin the news card on screen with full news data and headlines
+    if (extractedItems.length || turnSources.length) {
       try {
         setAutoPinNews(true);
         const draw = tools.find((t) => t.name === 'draw');
         if (draw) {
+          const bulletItems = extractedItems.slice(0, 3).map((it) => {
+            const title = String(it.title || '').trim().slice(0, 38);
+            const snip = String(it.snippet || '').trim().replace(/\bhttps?:\/\/\S+/g, '').slice(0, 70);
+            return `${title}: ${snip}`.slice(0, 115);
+          });
+          if (!bulletItems.length && turnSources.length) {
+            for (const s of turnSources.slice(0, 3)) {
+              bulletItems.push(s.name.slice(0, 115));
+            }
+          }
+          if (!bulletItems.length) {
+            bulletItems.push(formattedSummary ? formattedSummary.slice(0, 115) : 'Latest market rates and headlines');
+          }
+          const cardHeading = (lang === 'bn' ? 'আজকের স্বর্ণ ও বাজার খবর' : 'Today Gold News & Rates').slice(0, 80);
+          const cardTitle = String(actionableTask.content || 'News').slice(0, 60);
+          const cardText = (lang === 'bn' ? 'স্বর্ণের বাজার দর ও খবরের আপডেট নিচে দেওয়া হলো:' : 'Latest gold market prices, Fed headlines and bullion rates:').slice(0, 120);
+
           await draw.execute({
             beats: [{
-              say: lang === 'bn' ? 'সংবাদ উৎসগুলো পিন করা হলো।' : 'News pinned to screen.',
+              say: lang === 'bn' ? 'সংবাদ কার্ড পিন করা হলো।' : 'News card pinned.',
               marks: [{
-                kind: 'sources',
-                title: actionableTask.content,
-                sources: turnSources.slice(0, 8),
+                kind: 'card',
+                title: cardTitle,
+                heading: cardHeading,
+                text: cardText,
+                items: bulletItems,
+                sources: turnSources.slice(0, 4),
                 pinned: true
               }]
             }]
@@ -1959,6 +1979,7 @@ async function runTodoistWorkReport(lang = 'en', { autoClose = true, isLaunch = 
       // Close in Todoist (for recurring tasks, Todoist advances next occurrence to tomorrow)
       await closeTodoistTask(config.todoistToken, actionableTask.id).catch(() => {});
       await syncTodoistTasks(true);
+      panel();
     }
   }
 
@@ -3216,18 +3237,9 @@ function panelState() {
     skills: listSkills().map((k) => ({ slug: k.slug, name: k.name, description: k.description })), learnSkills: config.learnSkills !== false,
     commitments: [
       ...openCommitments().map((c) => ({ id: c.id, text: c.text, due: c.due ?? null, when: c.due ? `${fmtWhen(c.due)}${c.repeat ? ` · repeats ${repeatLabel(c.repeat)}` : ''}` : '', overdue: !!(c.due && c.due < Date.now()), repeat: c.repeat ?? null })),
-      ...todoistTasksCache.map((t) => {
-        const isDone = !!t.done || todoistDoneToday.has(t.todoistId);
-        return {
-          id: t.id,
-          text: t.text,
-          due: t.due ?? null,
-          done: isDone,
-          when: isDone ? (t.repeat ? 'Done today ↻' : 'Done today [Todoist]') : (t.when ? `${t.when} [Todoist]` : 'Todoist'),
-          overdue: !isDone && t.overdue,
-          repeat: t.repeat ?? null
-        };
-      })
+      ...todoistTasksCache
+        .filter((t) => !t.done && !todoistDoneToday.has(t.todoistId))
+        .map((t) => ({ id: t.id, text: t.text, due: t.due ?? null, when: t.when ? `${t.when} [Todoist]` : 'Todoist', overdue: t.overdue, repeat: t.repeat ?? null }))
     ],
     look: config.look ?? 'classic', looks: LOOKS.map(([id, label]) => [id, label]), name: lookName(),
     size: sizeNow(), sizes: SIZES,

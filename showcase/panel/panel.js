@@ -496,12 +496,19 @@
   }
   function commitList() {
     const { box, nav } = paged('commits', state.commitments, (x) => el('li', { className: 'item mem' },
-      el('span', { className: 'text', dir: 'auto', title: x.text }, x.text, x.when ? el('small', { className: x.overdue ? 'late' : '', textContent: x.overdue ? `Overdue · ${x.when}` : x.when }) : null),
-      el('span', { className: 'row-btns icons' },
-        iconArmed('tick', 'Done', `done:${x.id}`, `done:${x.id}`, `Done: ${x.text}`),
-        iconArmed('x', 'Drop', `drop:${x.id}`, `drop:${x.id}`, `Drop: ${x.text}`))), { label: 'Commitments' });
-    const n = state.commitments.length;
-    return [el('div', { className: 'group paged', role: 'tabpanel', id: 'mem-panel', 'aria-labelledby': 'tab-commits' }, box), foot(n ? el('p', { className: 'usage', textContent: `${n} open` }) : null, nav)];
+      el('span', { className: 'text' + (x.done ? ' done' : ''), dir: 'auto', title: x.text, style: x.done ? { textDecoration: 'line-through', opacity: '0.6' } : {} },
+        x.text,
+        x.when ? el('small', { className: x.overdue ? 'late' : '', textContent: x.overdue ? `Overdue · ${x.when}` : x.when }) : null
+      ),
+      el('span', { className: 'row-btns' + (x.done ? '' : ' icons') },
+        x.done
+          ? el('span', { className: 'done-badge', style: { color: 'var(--accent, #4ade80)', fontSize: '11px', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '4px', marginRight: '6px' } }, '✓ Done')
+          : iconArmed('tick', 'Done', `done:${x.id}`, `done:${x.id}`, `Done: ${x.text}`),
+        iconArmed('x', x.done ? 'Remove' : 'Drop', `drop:${x.id}`, `drop:${x.id}`, `${x.done ? 'Remove' : 'Drop'}: ${x.text}`))), { label: 'Commitments' });
+    const nOpen = state.commitments.filter((x) => !x.done).length;
+    const nDone = state.commitments.filter((x) => x.done).length;
+    const footerText = nOpen ? `${nOpen} open` : (nDone ? 'All completed today!' : null);
+    return [el('div', { className: 'group paged', role: 'tabpanel', id: 'mem-panel', 'aria-labelledby': 'tab-commits' }, box), foot(footerText ? el('p', { className: 'usage', textContent: footerText }) : null, nav)];
   }
   // A page arrow: the search field (if it has focus) is kept by redrawing only the list.
   const refresh = (focusKey) => (tab === 'memory' && ui.mtab === 'facts' && document.activeElement?.id === 'find-facts' ? refreshFacts() : render(focusKey));
