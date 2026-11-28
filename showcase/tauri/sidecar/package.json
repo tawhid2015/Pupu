@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.321",
-    "@kenkaiiii/gg-agent": "5.105.0",
+    "@kenkaiiii/gg-agent": "6.0.0",
     "@kenkaiiii/gg-ai": "5.105.0",
     "@kenkaiiii/gg-core": "5.105.0",
     "@kenkaiiii/ggcoder": "5.105.0",
