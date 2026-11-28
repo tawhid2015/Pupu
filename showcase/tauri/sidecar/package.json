@@ -23,7 +23,7 @@
     "@kenkaiiii/gg-ai": "5.105.0",
     "@kenkaiiii/gg-core": "5.105.0",
     "@kenkaiiii/ggcoder": "5.105.0",
-    "sherpa-onnx-node": "^1.13.8",
+    "sherpa-onnx-node": "^2.0.3",
     "zod": "4.6.7"
   },
   "devDependencies": {
