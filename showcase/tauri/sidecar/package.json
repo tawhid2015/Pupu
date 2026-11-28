@@ -22,7 +22,7 @@
     "@kenkaiiii/gg-agent": "5.105.0",
     "@kenkaiiii/gg-ai": "5.105.0",
     "@kenkaiiii/gg-core": "5.105.0",
-    "@kenkaiiii/ggcoder": "5.105.0",
+    "@kenkaiiii/ggcoder": "6.0.0",
     "sherpa-onnx-node": "^1.13.8",
     "zod": "4.6.7"
   },
